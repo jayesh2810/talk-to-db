@@ -191,6 +191,46 @@ async def graph_stats() -> GraphStatsResponse:
     )
 
 
+@app.get("/api/graph/data")
+async def graph_data(limit: int = 200) -> dict:
+    """Return graph nodes and edges for visualization (limited for performance)."""
+    if G is None:
+        raise HTTPException(status_code=503, detail="Graph not initialized")
+
+    # Prioritize customers and products, then include their related nodes
+    priority_types = ["customer", "product", "order"]
+    nodes = []
+    seen_nodes = set()
+
+    for node_id, attrs in G.nodes(data=True):
+        node_type = attrs.get("node_type", "unknown")
+        if node_type in priority_types and len(nodes) < limit:
+            label = attrs.get("name") or attrs.get("customer_id") or attrs.get("product_id") or attrs.get("order_id") or node_id
+            nodes.append({
+                "id": node_id,
+                "label": str(label),
+                "type": node_type,
+            })
+            seen_nodes.add(node_id)
+
+    # Include edges only between nodes we have
+    edges = []
+    for source, target, attrs in G.edges(data=True):
+        if source in seen_nodes and target in seen_nodes:
+            edges.append({
+                "source": source,
+                "target": target,
+                "type": attrs.get("edge_type", "unknown"),
+            })
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "total_nodes": G.number_of_nodes(),
+        "total_edges": G.number_of_edges(),
+    }
+
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "graph_loaded": G is not None}

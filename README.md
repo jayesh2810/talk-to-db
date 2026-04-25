@@ -1,6 +1,6 @@
-# KumoRFM Demo — Relational Predictive Analytics
+# Relational Predictive Analytics Demo
 
-A portfolio project that mirrors the core architecture of [Kumo.ai's KumoRFM product](https://kumo.ai). Kumo's product lets users connect a relational database, ask predictive questions in natural language, and get answers without building ML pipelines. This project demonstrates the same pipeline end-to-end.
+This project demonstrates a relational predictive analytics pipeline end-to-end. It allows users to connect a relational database, ask predictive questions in natural language, and get answers without building complex ML pipelines. This project demonstrates the same pipeline end-to-end.
 
 ## Architecture
 
@@ -62,7 +62,7 @@ customer → orders → products → OTHER customers (peer customers)
 
 If a customer bought the same products as several other customers who are now going inactive, that's a meaningful churn signal. Flat SQL joins cannot capture this because the signal lives **across three hops** in the entity graph — not within any single table.
 
-This is exactly the relational foundation model insight from Kumo's research: relationships between entities encode signal that raw SQL misses entirely.
+This is the core insight of relational foundation models: relationships between entities encode signal that raw SQL misses entirely.
 
 ## Setup
 

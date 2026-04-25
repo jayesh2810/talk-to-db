@@ -29,7 +29,7 @@ from data.db import get_connection, DB_PATH
 from data.seed import seed, DB_PATH as SEED_DB_PATH
 from data.seed import SCHEMA_PATH
 from graph.builder import load_or_build_graph
-from pql.executor import execute
+from pql.executor import execute, apply_filters
 from llm.claude import generate_pql, summarize_results, get_client
 from models.schemas import (
     ChatRequest,
@@ -96,10 +96,6 @@ app.add_middleware(
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     Main chat endpoint.
-
-    1. Claude converts NL question → PQL
-    2. Executor runs PQL against the graph
-    3. Claude summarizes results in plain English
     """
     if G is None:
         raise HTTPException(status_code=503, detail="Graph not initialized")
@@ -146,7 +142,115 @@ async def chat(request: ChatRequest) -> ChatResponse:
     )
 
 
+@app.post("/api/compare")
+async def compare(request: ChatRequest):
+    """
+    Compare Graph-native predictive scoring vs flat SQL scoring.
+    Currently only supports churn_probability.
+    """
+    if G is None:
+        raise HTTPException(status_code=503, detail="Graph not initialized")
+
+    # 1. NL → PQL
+    history = [{"role": m.role, "content": m.content} for m in request.history]
+    try:
+        pql_query = generate_pql(request.message, history)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"LLM error (PQL generation): {e}")
+
+    # 2. Execute PQL to check type and get candidates
+    try:
+        exec_result = execute(G, pql_query)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Execution error: {e}")
+
+    if exec_result["query_type"] != "predictive":
+        raise HTTPException(status_code=400, detail="Comparison only available for predictive queries")
+    
+    # check if it's churn_probability (we can check pql_query or execute_result)
+    # pql_query usually contains PREDICT churn_probability
+    if "churn_probability" not in pql_query.lower():
+        raise HTTPException(status_code=400, detail="Comparison only available for churn_probability queries")
+
+    # 3. Compute Graph vs SQL scores for ALL matching customers
+    # We reuse the logic from _run_churn in executor.py
+    from pql.parser import parse_pql
+    plan = parse_pql(pql_query)
+    filters = plan.get("filters", [])
+
+    customer_nodes = [
+        n for n, attrs in G.nodes(data=True)
+        if attrs.get("node_type") == "customer"
+        and apply_filters(attrs, filters)
+    ]
+
+    graph_scores = []
+
+    sql_scores = []
+
+    for node in customer_nodes:
+        name = G.nodes[node].get("name", "Unknown")
+        signals, _ = collect_churn_signals(G, node)
+        
+        g_score, _, _ = score_churn(signals, sql_mode=False)
+        s_score, _, _ = score_churn(signals, sql_mode=True)
+        
+        graph_scores.append({"name": name, "score": g_score})
+        sql_scores.append({"name": name, "score": s_score})
+
+    # Sort and Rank
+    graph_scores.sort(key=lambda x: x["score"], reverse=True)
+    sql_scores.sort(key=lambda x: x["score"], reverse=True)
+
+    for i, item in enumerate(graph_scores):
+        item["rank"] = i + 1
+    for i, item in enumerate(sql_scores):
+        item["rank"] = i + 1
+
+    # Compute Deltas
+    graph_rank_map = {item["name"]: item["rank"] for item in graph_scores}
+    sql_rank_map = {item["name"]: item["rank"] for item in sql_scores}
+    graph_score_map = {item["name"]: item["score"] for item in graph_scores}
+    sql_score_map = {item["name"]: item["score"] for item in sql_scores}
+
+    deltas = []
+    for name in graph_rank_map:
+        g_rank = graph_rank_map[name]
+        s_rank = sql_rank_map[name]
+        rank_change = s_rank - g_rank # Positive if graph is higher (better risk detection)
+        
+        if abs(rank_change) >= 1:
+            deltas.append({
+                "name": name,
+                "graph_rank": g_rank,
+                "sql_rank": s_rank,
+                "rank_change": rank_change,
+                "score_delta": round(graph_score_map[name] - sql_score_map[name], 3)
+            })
+
+    deltas.sort(key=lambda x: abs(x["rank_change"]), reverse=True)
+
+    # 4. Summary
+    try:
+        summary = summarize_results(
+            question=request.message,
+            pql_query=pql_query,
+            results=graph_scores,
+            traversal_steps=[],
+        )
+    except Exception:
+        summary = "Comparison results generated."
+
+    return {
+        "graph_results": graph_scores,
+        "sql_results": sql_scores,
+        "deltas": deltas,
+        "pql_query": pql_query,
+        "summary": summary
+    }
+
 @app.get("/api/schema", response_model=SchemaResponse)
+
 async def get_schema() -> SchemaResponse:
     """Return table names, columns, and foreign key relationships."""
     conn = get_connection()

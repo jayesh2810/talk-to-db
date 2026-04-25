@@ -19,7 +19,7 @@ from prediction.signals import (
 )
 
 
-def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
+def score_churn(signals: dict[str, Any], sql_mode: bool = False) -> tuple[float, float, list[dict]]:
     """
     Score churn probability for a customer.
 
@@ -39,6 +39,19 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
         "unresolved_issues":         0.07,
     }
 
+    if sql_mode:
+        # Zero out graph-native signals
+        signals = signals.copy()
+        signals["peer_churn_rate"] = 0.0
+        signals["category_diversity"] = 0.0
+        
+        # Renormalize weights (sum of remaining = 1.0 - 0.12 = 0.88)
+        scale = 1.0 / 0.88
+        weights = {k: v * scale for k, v in weights.items() if k != "peer_churn_rate"}
+    else:
+        # Standard weights
+        pass
+
     normalized = {
         "days_since_last_order":     normalize_days(signals.get("days_since_last_order", 0), max_days=90),
         "return_rate":               normalize_rate(signals.get("return_rate", 0.0)),
@@ -47,18 +60,21 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
         "peer_churn_rate":           normalize_rate(signals.get("peer_churn_rate", 0.0)),
         "unresolved_issues":         normalize_count(signals.get("unresolved_issues", 0), max_count=3),
     }
-
-    score = clamp(sum(normalized[k] * weights[k] for k in weights))
-
-    signal_values = list(normalized.values())
+    
+    # Ensure we only use weights that exist (especially in sql_mode)
+    relevant_weights = {k: weights[k] for k in weights if k in normalized}
+    
+    score = clamp(sum(normalized[k] * relevant_weights[k] for k in relevant_weights))
+    
+    signal_values = [normalized[k] for k in relevant_weights]
     confidence = variance_confidence(signal_values, score)
-
+    
     # Reduce confidence for customers with very few data points
     if signals.get("total_orders", 0) < 2:
         confidence *= 0.6
     confidence = clamp(confidence)
-
-    contributions = {k: normalized[k] * weights[k] for k in weights}
+    
+    contributions = {k: normalized[k] * relevant_weights[k] for k in relevant_weights}
     top_factors = sorted(contributions.items(), key=lambda x: x[1], reverse=True)[:3]
     top_factors_list = [
         {
@@ -68,7 +84,7 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
         }
         for k, v in top_factors
     ]
-
+    
     return round(score, 3), round(confidence, 3), top_factors_list
 
 

@@ -191,6 +191,116 @@ async def graph_stats() -> GraphStatsResponse:
     )
 
 
+from graph.traversal import collect_churn_signals
+from prediction.engine import score_churn
+
+@app.get("/api/customer/{customer_id}")
+async def get_customer_profile(customer_id: str):
+    """
+    Fetch a complete customer profile and churn risk from the graph.
+    """
+    node_id = f"customer:{customer_id}"
+    if G is None:
+        raise HTTPException(status_code=503, detail="Graph not initialized")
+    
+    if node_id not in G.nodes:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    customer_node = G.nodes[node_id]
+    if customer_node.get("node_type") != "customer":
+        raise HTTPException(status_code=400, detail="Node is not a customer")
+    
+    # 1. Basic Profile
+    profile = {
+        "id": customer_id,
+        "name": customer_node.get("name", ""),
+        "segment": customer_node.get("segment", ""),
+        "city": customer_node.get("city", ""),
+        "lifetime_value": customer_node.get("lifetime_value", 0),
+        "signup_date": customer_node.get("signup_date", ""),
+        "acq_channel": customer_node.get("acq_channel", ""),
+    }
+    
+    # 2. Orders and Order Items
+    orders = []
+    order_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "order"]
+    
+    # Sort orders by date desc
+    order_nodes.sort(key=lambda n: G.nodes[n].get("order_date", ""), reverse=True)
+    
+    for on in order_nodes:
+        o_attrs = G.nodes[on]
+        # Get items for this order
+        items = []
+        for pn in G.successors(on):
+            if G.nodes[pn].get("node_type") == "product":
+                p_attrs = G.nodes[pn]
+                edge_attrs = G.edges[on, pn]
+                items.append({
+                    "product_name": p_attrs.get("name", ""),
+                    "category": p_attrs.get("category", ""),
+                    "quantity": edge_attrs.get("quantity", 1),
+                    "unit_price": edge_attrs.get("unit_price", 0.0),
+                    "returned": edge_attrs.get("returned", False),
+                })
+        
+        orders.append({
+            "order_id": on,
+            "order_date": o_attrs.get("order_date", ""),
+            "total_amount": o_attrs.get("total_amount", 0),
+            "status": o_attrs.get("status", ""),
+            "delivery_days": o_attrs.get("delivery_days", 0),
+            "promised_days": o_attrs.get("promised_days", 0),
+            "items": items,
+        })
+    
+    # 3. Interactions
+    interactions = []
+    interaction_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "interaction"]
+    interaction_nodes.sort(key=lambda n: G.nodes[n].get("date", ""), reverse=True)
+    for in_node in interaction_nodes:
+        i_attrs = G.nodes[in_node]
+        interactions.append({
+            "date": i_attrs.get("date", ""),
+            "channel": i_attrs.get("channel", ""),
+            "topic": i_attrs.get("topic", ""),
+            "sentiment": i_attrs.get("sentiment", ""),
+            "resolved": i_attrs.get("resolved", False),
+            "resolution_hours": i_attrs.get("resolution_hours", 0),
+        })
+        
+    # 4. Campaigns
+    campaigns = []
+    campaign_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "campaign"]
+    campaign_nodes.sort(key=lambda n: G.nodes[n].get("sent_date", ""), reverse=True)
+    for cn in campaign_nodes:
+        c_attrs = G.nodes[cn]
+        campaigns.append({
+            "campaign_name": c_attrs.get("campaign_name", ""),
+            "campaign_type": c_attrs.get("campaign_type", ""),
+            "sent_date": c_attrs.get("sent_date", ""),
+            "opened": c_attrs.get("opened", False),
+            "clicked": c_attrs.get("clicked", False),
+            "converted": c_attrs.get("converted", False),
+        })
+        
+    # 5. Churn Signals and Score
+    raw_signals, _ = collect_churn_signals(G, node_id)
+    score, confidence, factors = score_churn(raw_signals)
+    
+    return {
+        "profile": profile,
+        "orders": orders,
+        "interactions": interactions,
+        "campaigns": campaigns,
+        "churn": {
+            "score": score,
+            "confidence": confidence,
+            "top_factors": factors,
+            "raw_signals": raw_signals,
+        }
+    }
+
 @app.get("/api/health")
 async def health() -> dict:
     return {"status": "ok", "graph_loaded": G is not None}

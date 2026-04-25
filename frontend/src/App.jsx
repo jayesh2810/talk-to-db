@@ -1,10 +1,12 @@
 import { useState, useRef } from 'react'
 import ChatWindow from './components/ChatWindow'
+import CustomerDrawer from './components/CustomerDrawer'
 import { useChat } from './hooks/useChat'
 
 export default function App() {
   const { messages, isLoading, error, sendMessage, clearHistory } = useChat()
   const [input, setInput] = useState('')
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const inputRef = useRef(null)
 
   const handleSubmit = async (text) => {
@@ -25,29 +27,29 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen bg-gray-950">
       {/* Top bar */}
-      <header className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-900">
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white">
+      <header className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-800/50 bg-gray-900/80 backdrop-blur-md z-10">
+        <div className="flex items-center gap-4">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center text-base font-bold text-white shadow-lg shadow-indigo-500/20">
             K
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white leading-none">KumoRFM Demo</h1>
-            <p className="text-xs text-gray-500 leading-none mt-0.5">Relational Predictive Analytics</p>
+            <h1 className="text-sm font-bold text-white leading-none tracking-tight">Relational Predictive Analytics</h1>
+            <p className="text-[11px] text-gray-500 leading-none mt-1 font-medium uppercase tracking-wider">Intelligence Engine</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           {messages.length > 0 && (
             <button
               onClick={clearHistory}
-              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors font-medium"
             >
-              Clear
+              Clear Session
             </button>
           )}
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-gray-500">Graph loaded</span>
+          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-tighter">Graph Online</span>
           </div>
         </div>
       </header>
@@ -58,12 +60,19 @@ export default function App() {
         isLoading={isLoading}
         error={error}
         onSend={handleSubmit}
+        onCustomerClick={setSelectedCustomerId}
+      />
+
+      {/* Customer Drawer */}
+      <CustomerDrawer 
+        customerId={selectedCustomerId} 
+        onClose={() => setSelectedCustomerId(null)} 
       />
 
       {/* Input bar */}
-      <div className="flex-shrink-0 border-t border-gray-800 bg-gray-900 px-4 py-3">
+      <div className="flex-shrink-0 border-t border-gray-800/50 bg-gray-900/80 backdrop-blur-md px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-end gap-3">
-          <div className="flex-1 relative">
+          <div className="flex-1 relative group">
             <textarea
               ref={inputRef}
               value={input}
@@ -73,16 +82,16 @@ export default function App() {
               rows={1}
               disabled={isLoading}
               className="
-                w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3
+                w-full bg-gray-800/50 border border-gray-700 rounded-2xl px-4 py-3
                 text-sm text-gray-200 placeholder-gray-600
-                resize-none focus:outline-none focus:border-indigo-500
+                resize-none focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50
                 disabled:opacity-50 disabled:cursor-not-allowed
-                transition-colors leading-relaxed
+                transition-all duration-200 leading-relaxed
               "
-              style={{ minHeight: '44px', maxHeight: '120px' }}
+              style={{ minHeight: '48px', maxHeight: '150px' }}
               onInput={e => {
                 e.target.style.height = 'auto'
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+                e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'
               }}
             />
           </div>
@@ -90,25 +99,26 @@ export default function App() {
             onClick={() => handleSubmit()}
             disabled={isLoading || !input.trim()}
             className="
-              flex-shrink-0 w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-500
+              flex-shrink-0 w-11 h-11 rounded-2xl bg-indigo-600 hover:bg-indigo-500
               disabled:opacity-40 disabled:cursor-not-allowed
-              flex items-center justify-center transition-colors
+              flex items-center justify-center transition-all duration-200
+              shadow-lg shadow-indigo-600/20 active:scale-95
             "
           >
             {isLoading ? (
-              <svg className="w-4 h-4 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-white animate-spin" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
               </svg>
             ) : (
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             )}
           </button>
         </div>
-        <p className="text-center text-xs text-gray-700 mt-2">
-          NL → PQL → Graph Traversal → Prediction → Summary
+        <p className="text-center text-[10px] text-gray-600 mt-3 font-mono tracking-tight uppercase">
+          NL <span className="text-gray-700">→</span> PQL <span className="text-gray-700">→</span> Graph Traversal <span className="text-gray-700">→</span> Prediction <span className="text-gray-700">→</span> Summary
         </p>
       </div>
     </div>

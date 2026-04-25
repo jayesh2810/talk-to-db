@@ -26,6 +26,37 @@ function FactorsList({ factors }) {
   )
 }
 
+function exportToCsv(columns, rows, filename) {
+  const filteredCols = columns.filter(c => !c.startsWith('_'))
+  const headers = filteredCols.join(',')
+  
+  const csvRows = rows.map(row => {
+    return filteredCols.map(col => {
+      let val = row[col]
+      if (col === 'top_factors' && Array.isArray(val)) {
+        val = val.map(f => `${f.factor}(${f.contribution})`).join(', ')
+      }
+      
+      let strVal = val === null || val === undefined ? '' : String(val)
+      if (strVal.includes(',') || strVal.includes('\n') || strVal.includes('"')) {
+        strVal = `"${strVal.replace(/"/g, '""')}"`
+      }
+      return strVal
+    }).join(',')
+  })
+
+  const csvContent = [headers, ...csvRows].join('\n')
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', filename)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
 function CellValue({ col, value }) {
   if (value === null || value === undefined || value === '') {
     return <span className="text-gray-600">—</span>
@@ -91,9 +122,23 @@ export default function ResultTable({ results, columns, queryType, totalResults,
     <div className="rounded-2xl border border-gray-700/50 overflow-hidden bg-gray-900/30 shadow-xl">
       <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700/50 flex items-center justify-between">
         <span className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Query Results</span>
-        <span className="text-[11px] text-gray-500 font-medium">
-          Showing {rows.length} of {totalResults}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-gray-500 font-medium">
+            Showing {rows.length} of {totalResults}
+          </span>
+          <button 
+            onClick={() => {
+              const filename = `kumorfm-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
+              exportToCsv(columns, rows, filename)
+            }}
+            className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors flex items-center gap-1"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export CSV
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">

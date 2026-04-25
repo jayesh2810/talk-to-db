@@ -30,7 +30,7 @@ from data.db import get_connection, DB_PATH
 from data.seed import seed, DB_PATH as SEED_DB_PATH
 from data.seed import SCHEMA_PATH
 from graph.builder import load_or_build_graph
-from pql.executor import execute, apply_filters
+from pql.executor import execute
 from llm.claude import generate_pql, summarize_results, get_client
 from models.schemas import (
     ChatRequest,
@@ -117,6 +117,10 @@ app.add_middleware(
 async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> ChatResponse:
     """
     Main chat endpoint.
+
+    1. Claude converts NL question → PQL
+    2. Executor runs PQL against the graph
+    3. Claude summarizes results in plain English
     """
     if G is None:
         raise HTTPException(status_code=503, detail="Graph not initialized")
@@ -273,7 +277,6 @@ async def compare(request: ChatRequest, user: str = Depends(get_current_user)):
 @app.get("/api/schema", response_model=SchemaResponse)
 async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
     """Return table names, columns, and foreign key relationships."""
-
     conn = get_connection()
     tables = []
 
@@ -293,7 +296,6 @@ async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
 
 
 @app.get("/api/graph/stats", response_model=GraphStatsResponse)
-async def graph_stats(user: str = Depends(get_current_user)) -> GraphStatsResponse:
     """Return graph node/edge counts to prove the graph is real."""
     if G is None:
         raise HTTPException(status_code=503, detail="Graph not initialized")
@@ -320,7 +322,6 @@ from graph.traversal import collect_churn_signals
 from prediction.engine import score_churn
 
 @app.get("/api/customer/{customer_id}")
-async def get_customer_profile(customer_id: str, user: str = Depends(get_current_user)):
     """
     Fetch a complete customer profile and churn risk from the graph.
     """
@@ -427,6 +428,4 @@ async def get_customer_profile(customer_id: str, user: str = Depends(get_current
     }
 
 @app.get("/api/health")
-async def health(user: str = Depends(get_current_user)) -> dict:
-    """Health check endpoint."""
     return {"status": "ok", "graph_loaded": G is not None}

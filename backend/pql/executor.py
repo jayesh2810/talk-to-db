@@ -27,7 +27,7 @@ _STATE_ABBREV = {
 }
 
 
-def normalize_filter_value(field: str, value: Any) -> Any:
+def _normalize_filter_value(field: str, value: Any) -> Any:
     """Normalize filter values to match seed data conventions."""
     if field == "state" and isinstance(value, str) and len(value) > 2:
         return _STATE_ABBREV.get(value.lower(), value)
@@ -96,7 +96,7 @@ def _execute_factual(G: nx.DiGraph, plan: dict) -> dict[str, Any]:
     for node_id, attrs in G.nodes(data=True):
         if attrs.get("node_type") != entity_type:
             continue
-        if not apply_filters(attrs, filters):
+        if not _apply_filters(attrs, filters):
             continue
         rows.append(dict(attrs))
 
@@ -160,12 +160,12 @@ def _execute_factual(G: nx.DiGraph, plan: dict) -> dict[str, Any]:
     }
 
 
-def apply_filters(attrs: dict, filters: list[dict]) -> bool:
+def _apply_filters(attrs: dict, filters: list[dict]) -> bool:
     """Return True if the node attributes satisfy all WHERE conditions."""
     for f in filters:
         field = f["field"]
         op = f["op"]
-        expected = normalize_filter_value(field, f["value"])
+        expected = _normalize_filter_value(field, f["value"])
         actual = attrs.get(field)
 
         if actual is None or actual == "":
@@ -233,7 +233,7 @@ def _run_churn(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]
     customer_nodes = [
         n for n, attrs in G.nodes(data=True)
         if attrs.get("node_type") == "customer"
-        and apply_filters(attrs, filters)
+        and _apply_filters(attrs, filters)
     ]
 
     scored: list[dict] = []
@@ -284,6 +284,101 @@ def _run_churn(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]
         "total_results": total,
     }
 
+
+def _run_purchase(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]:
+    """Score purchase likelihood for all matching customers."""
+    customer_nodes = [
+        n for n, attrs in G.nodes(data=True)
+        if attrs.get("node_type") == "customer"
+        and _apply_filters(attrs, filters)
+    ]
+
+    scored: list[dict] = []
+
+    for node in customer_nodes:
+        attrs = G.nodes[node]
+        signals, steps = collect_purchase_signals(G, node)
+        p_score, confidence, top_factors = score_purchase_likelihood(signals)
+
+        scored.append({
+            "customer_id": attrs.get("customer_id", ""),
+            "name": attrs.get("name", ""),
+            "segment": attrs.get("segment", ""),
+            "lifetime_value": attrs.get("lifetime_value", 0.0),
+            "score": p_score,
+            "confidence": confidence,
+            "top_factors": top_factors,
+            "_steps": steps,
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    all_traversal_steps = scored[0].pop("_steps", []) if scored else []
+    for row in scored:
+        row.pop("_steps", None)
+
+    total = len(scored)
+    rows = scored[:limit]
+
+    return {
+        "query_type": "predictive",
+        "results": rows,
+        "traversal_steps": all_traversal_steps,
+        "columns": ["name", "segment", "lifetime_value", "score", "confidence", "top_factors"],
+        "total_results": total,
+    }
+
+
+def _run_fraud(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]:
+    """Score fraud risk for all matching orders."""
+    order_nodes = [
+        n for n, attrs in G.nodes(data=True)
+        if attrs.get("node_type") == "order"
+        and _apply_filters(attrs, filters)
+    ]
+
+    scored: list[dict] = []
+
+    for node in order_nodes:
+        attrs = G.nodes[node]
+        signals, steps = collect_fraud_signals(G, node)
+        f_score, confidence, top_factors = score_fraud_risk(signals)
+
+        # Find customer name
+        customer_node = next(
+            (n for n in G.predecessors(node) if G.nodes[n].get("node_type") == "customer"),
+            None,
+        )
+        customer_name = G.nodes[customer_node].get("name", "Unknown") if customer_node else "Unknown"
+
+        scored.append({
+            "order_id": attrs.get("order_id", ""),
+            "customer_name": customer_name,
+            "order_date": attrs.get("order_date", ""),
+            "total_amount": attrs.get("total_amount", 0.0),
+            "status": attrs.get("status", ""),
+            "score": f_score,
+            "confidence": confidence,
+            "top_factors": top_factors,
+            "_steps": steps,
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+
+    all_traversal_steps = scored[0].pop("_steps", []) if scored else []
+    for row in scored:
+        row.pop("_steps", None)
+
+    total = len(scored)
+    rows = scored[:limit]
+
+    return {
+        "query_type": "predictive",
+        "results": rows,
+        "traversal_steps": all_traversal_steps,
+        "columns": ["order_id", "customer_name", "order_date", "total_amount", "score", "confidence", "top_factors"],
+        "total_results": total,
+    }
 
 
 def _run_demand(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]:

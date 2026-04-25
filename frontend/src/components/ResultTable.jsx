@@ -2,23 +2,23 @@ import { useState } from 'react'
 
 function ScoreBadge({ score }) {
   const pct = Math.round(score * 100)
-  let color = 'bg-emerald-900 text-emerald-300 border-emerald-700'
-  if (pct >= 70) color = 'bg-red-900 text-red-300 border-red-700'
-  else if (pct >= 40) color = 'bg-yellow-900 text-yellow-300 border-yellow-700'
+  let color = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+  if (pct >= 70) color = 'bg-red-500/10 text-red-400 border-red-500/30'
+  else if (pct >= 40) color = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${color}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono font-bold border ${color} shadow-sm`}>
       {pct}%
     </span>
   )
 }
 
 function FactorsList({ factors }) {
-  if (!Array.isArray(factors) || factors.length === 0) return <span className="text-gray-500">—</span>
+  if (!Array.isArray(factors) || factors.length === 0) return <span className="text-gray-600">—</span>
   return (
     <div className="flex flex-wrap gap-1">
       {factors.map((f, i) => (
-        <span key={i} className="text-xs px-1.5 py-0.5 bg-gray-800 border border-gray-700 rounded text-gray-400 font-mono">
+        <span key={i} className="text-[10px] px-1.5 py-0.5 bg-gray-800/50 border border-gray-700 rounded text-gray-400 font-mono">
           {f.factor?.replace(/_/g, ' ')}
         </span>
       ))}
@@ -42,14 +42,14 @@ function CellValue({ col, value }) {
 
   if (col === 'total_amount' || col === 'lifetime_value' || col === 'predicted_revenue' || col === 'total_revenue') {
     const num = parseFloat(value)
-    return <span className="font-mono">${isNaN(num) ? value : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+    return <span className="font-mono text-gray-200">${isNaN(num) ? value : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
   }
 
   if (typeof value === 'number') {
-    return <span className="font-mono">{value.toLocaleString()}</span>
+    return <span className="font-mono text-gray-200">{value.toLocaleString()}</span>
   }
 
-  return <span>{String(value)}</span>
+  return <span className="text-gray-300">{String(value)}</span>
 }
 
 export default function ResultTable({ results, columns, queryType, totalResults, onCustomerClick }) {
@@ -58,7 +58,7 @@ export default function ResultTable({ results, columns, queryType, totalResults,
 
   if (!results || results.length === 0) {
     return (
-      <div className="rounded-lg border border-gray-700 p-6 text-center text-gray-500 text-sm">
+      <div className="rounded-2xl border border-gray-700/50 p-8 text-center text-gray-500 text-sm bg-gray-900/20">
         No results found.
       </div>
     )
@@ -88,10 +88,10 @@ export default function ResultTable({ results, columns, queryType, totalResults,
   }
 
   return (
-    <div className="rounded-lg border border-gray-700 overflow-hidden">
-      <div className="px-3 py-2 bg-gray-800 border-b border-gray-700 flex items-center justify-between">
-        <span className="text-xs text-gray-400 font-medium">Results</span>
-        <span className="text-xs text-gray-500">
+    <div className="rounded-2xl border border-gray-700/50 overflow-hidden bg-gray-900/30 shadow-xl">
+      <div className="px-4 py-3 bg-gray-800/50 border-b border-gray-700/50 flex items-center justify-between">
+        <span className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">Query Results</span>
+        <span className="text-[11px] text-gray-500 font-medium">
           Showing {rows.length} of {totalResults}
         </span>
       </div>
@@ -99,13 +99,13 @@ export default function ResultTable({ results, columns, queryType, totalResults,
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-700 bg-gray-900">
+            <tr className="border-b border-gray-700/50 bg-gray-900/50">
               {visibleColumns.map(col => (
                 <th
                   key={col}
                   onClick={() => !['top_factors'].includes(col) && handleSort(col)}
-                  className={`px-3 py-2 text-left text-xs font-medium text-gray-400 whitespace-nowrap
-                    ${!['top_factors'].includes(col) ? 'cursor-pointer hover:text-gray-200 select-none' : ''}
+                  className={`px-4 py-3 text-left text-[11px] font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap
+                    ${!['top_factors'].includes(col) ? 'cursor-pointer hover:text-gray-300 select-none transition-colors' : ''}
                   `}
                 >
                   <span className="flex items-center gap-1">
@@ -127,18 +127,18 @@ export default function ResultTable({ results, columns, queryType, totalResults,
               <tr
                 key={i}
                 onClick={() => isCustomerQuery && onCustomerClick?.(row.customer_id)}
-                className={`border-b border-gray-800 transition-colors ${
-                  isCustomerQuery ? 'cursor-pointer hover:bg-gray-800/60' : 'hover:bg-gray-800/50'
+                className={`border-b border-gray-800/50 transition-all ${
+                  isCustomerQuery ? 'cursor-pointer hover:bg-indigo-500/5' : 'hover:bg-gray-800/30'
                 }`}
               >
                 {visibleColumns.map(col => (
-                  <td key={col} className="px-3 py-2 text-gray-300 max-w-xs">
+                  <td key={col} className="px-4 py-3 text-gray-300 max-w-xs">
                     <CellValue col={col} value={row[col]} />
                   </td>
                 ))}
                 {isCustomerQuery && (
-                  <td className="px-3 py-2 text-gray-500 text-center">
-                    <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <td className="px-4 py-3 text-gray-600 text-center">
+                    <svg className="w-4 h-4 inline opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </td>

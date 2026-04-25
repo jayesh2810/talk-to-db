@@ -5,6 +5,8 @@
 @layer base {
   body {
     @apply bg-gray-950 text-gray-100 antialiased;
+    background-image: radial-gradient(circle at 50% -20%, #1e1b4b 0%, #030712 40%);
+    background-attachment: fixed;
   }
 
   ::-webkit-scrollbar {
@@ -19,5 +21,11 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-600;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-gray-900/50 backdrop-blur-md border border-gray-800/50;
   }
 }

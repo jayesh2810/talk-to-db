@@ -1,6 +1,6 @@
 # Relational Predictive Analytics Demo
 
-This project demonstrates a relational predictive analytics pipeline end-to-end. It allows users to connect a relational database, ask predictive questions in natural language, and get answers without building complex ML pipelines. This project demonstrates the same pipeline end-to-end.
+This project demonstrates a relational predictive analytics pipeline end-to-end. It allows users to connect a relational database, ask predictive questions in natural language, and get answers without building complex ML pipelines.
 
 ## Architecture
 

@@ -1,10 +1,12 @@
 import { useState, useRef } from 'react'
 import ChatWindow from './components/ChatWindow'
+import CustomerDrawer from './components/CustomerDrawer'
 import { useChat } from './hooks/useChat'
 
 export default function App() {
   const { messages, isLoading, error, sendMessage, clearHistory } = useChat()
   const [input, setInput] = useState('')
+  const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const inputRef = useRef(null)
 
   const handleSubmit = async (text) => {
@@ -31,7 +33,7 @@ export default function App() {
             K
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white leading-none">KumoRFM Demo</h1>
+            <h1 className="text-sm font-semibold text-white leading-none">Relational Predictive Analytics Demo</h1>
             <p className="text-xs text-gray-500 leading-none mt-0.5">Relational Predictive Analytics</p>
           </div>
         </div>
@@ -58,6 +60,13 @@ export default function App() {
         isLoading={isLoading}
         error={error}
         onSend={handleSubmit}
+        onCustomerClick={setSelectedCustomerId}
+      />
+
+      {/* Customer Drawer */}
+      <CustomerDrawer 
+        customerId={selectedCustomerId} 
+        onClose={() => setSelectedCustomerId(null)} 
       />
 
       {/* Input bar */}

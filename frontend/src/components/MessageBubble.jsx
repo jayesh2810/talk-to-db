@@ -2,7 +2,7 @@ import QueryDisplay from './QueryDisplay'
 import TraversalSteps from './TraversalSteps'
 import ResultTable from './ResultTable'
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onCustomerClick }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -22,7 +22,7 @@ export default function MessageBubble({ message }) {
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
             K
           </div>
-          <span className="text-xs text-gray-500 font-medium">KumoRFM</span>
+          <span className="text-xs text-gray-500 font-medium">Relational Predictive Analytics Demo</span>
         </div>
 
         {/* 1. Plain-English Summary (read first) */}
@@ -52,6 +52,7 @@ export default function MessageBubble({ message }) {
             columns={message.columns || []}
             queryType={message.query_type}
             totalResults={message.total_results || message.results.length}
+            onCustomerClick={onCustomerClick}
           />
         )}
       </div>

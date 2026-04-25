@@ -52,7 +52,7 @@ function CellValue({ col, value }) {
   return <span>{String(value)}</span>
 }
 
-export default function ResultTable({ results, columns, queryType, totalResults }) {
+export default function ResultTable({ results, columns, queryType, totalResults, onCustomerClick }) {
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('desc')
 
@@ -65,6 +65,7 @@ export default function ResultTable({ results, columns, queryType, totalResults 
   }
 
   const visibleColumns = columns.filter(c => c !== 'customer_id' && c !== 'order_id' && c !== 'product_id')
+  const isCustomerQuery = queryType?.includes('customer') || columns.includes('customer_id')
 
   const handleSort = (col) => {
     if (sortCol === col) {
@@ -118,19 +119,30 @@ export default function ResultTable({ results, columns, queryType, totalResults 
                   </span>
                 </th>
               ))}
+              {isCustomerQuery && <th className="w-10"></th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, i) => (
               <tr
                 key={i}
-                className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors"
+                onClick={() => isCustomerQuery && onCustomerClick?.(row.customer_id)}
+                className={`border-b border-gray-800 transition-colors ${
+                  isCustomerQuery ? 'cursor-pointer hover:bg-gray-800/60' : 'hover:bg-gray-800/50'
+                }`}
               >
                 {visibleColumns.map(col => (
                   <td key={col} className="px-3 py-2 text-gray-300 max-w-xs">
                     <CellValue col={col} value={row[col]} />
                   </td>
                 ))}
+                {isCustomerQuery && (
+                  <td className="px-3 py-2 text-gray-500 text-center">
+                    <svg className="w-4 h-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

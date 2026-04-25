@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAuth } from '../context/AuthContext'
 
 function CollapsibleSection({ title, children, defaultOpen = true }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
@@ -34,6 +35,7 @@ function StatusBadge({ segment }) {
 }
 
 export default function CustomerDrawer({ customerId, onClose }) {
+  const { getAuthHeader } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -45,7 +47,11 @@ export default function CustomerDrawer({ customerId, onClose }) {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`http://localhost:8000/api/customer/${customerId}`)
+        const res = await fetch(`http://localhost:8000/api/customer/${customerId}`, {
+          headers: {
+            ...getAuthHeader()
+          }
+        })
         if (!res.ok) throw new Error('Failed to fetch customer profile')
         const json = await res.json()
         setData(json)
@@ -56,7 +62,7 @@ export default function CustomerDrawer({ customerId, onClose }) {
       }
     }
     fetchCustomer()
-  }, [customerId])
+  }, [customerId, getAuthHeader])
 
   useEffect(() => {
     const handleEsc = (e) => { if (e.key === 'Escape') onClose() }

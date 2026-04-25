@@ -1,8 +1,10 @@
 import { useState, useCallback } from 'react'
+import { useAuth } from '../context/AuthContext'
 
 const API_BASE = '/api'
 
 export function useChat() {
+  const { getAuthHeader } = useAuth()
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -22,7 +24,10 @@ export function useChat() {
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeader()
+        },
         body: JSON.stringify({ message: text, history }),
       })
 
@@ -53,7 +58,7 @@ export function useChat() {
     } finally {
       setIsLoading(false)
     }
-  }, [messages, isLoading])
+  }, [messages, isLoading, getAuthHeader])
 
   const clearHistory = useCallback(() => {
     setMessages([])

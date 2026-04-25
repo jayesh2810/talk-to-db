@@ -2,8 +2,10 @@ import { useState, useRef } from 'react'
 import ChatWindow from './components/ChatWindow'
 import CustomerDrawer from './components/CustomerDrawer'
 import { useChat } from './hooks/useChat'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import AuthModal from './components/AuthModal'
 
-export default function App() {
+function AppContent() {
   const { messages, isLoading, error, sendMessage, clearHistory } = useChat()
   const [input, setInput] = useState('')
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
@@ -123,4 +125,18 @@ export default function App() {
       </div>
     </div>
   )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+      <AuthGate />
+    </AuthProvider>
+  )
+}
+
+function AuthGate() {
+  const { isAuthenticated } = useAuth()
+  return !isAuthenticated ? <AuthModal /> : null
 }

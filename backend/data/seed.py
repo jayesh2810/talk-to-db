@@ -715,6 +715,10 @@ def seed(conn: sqlite3.Connection) -> None:
     schema_sql = SCHEMA_PATH.read_text()
     conn.executescript(schema_sql)
 
+    # Create and seed admin table
+    conn.execute("CREATE TABLE admin (user_id TEXT PRIMARY KEY, password TEXT)")
+    conn.execute("INSERT INTO admin (user_id, password) VALUES (?, ?)", ("1028@admin", "1028@admin"))
+
     conn.executemany(
         "INSERT INTO customers VALUES (?,?,?,?,?,?,?,?,?)", CUSTOMERS
     )

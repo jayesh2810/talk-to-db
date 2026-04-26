@@ -30,7 +30,9 @@ from data.db import get_connection, DB_PATH
 from data.seed import seed, DB_PATH as SEED_DB_PATH
 from data.seed import SCHEMA_PATH
 from graph.builder import load_or_build_graph
-from pql.executor import execute
+from graph.traversal import collect_churn_signals
+from prediction.engine import score_churn
+from pql.executor import execute, _apply_filters
 from llm.claude import generate_pql, summarize_results, get_client
 from models.schemas import (
     ChatRequest,
@@ -206,7 +208,7 @@ async def compare(request: ChatRequest, user: str = Depends(get_current_user)):
     customer_nodes = [
         n for n, attrs in G.nodes(data=True)
         if attrs.get("node_type") == "customer"
-        and apply_filters(attrs, filters)
+        and _apply_filters(attrs, filters)
     ]
 
     graph_scores = []
@@ -296,6 +298,7 @@ async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
 
 
 @app.get("/api/graph/stats", response_model=GraphStatsResponse)
+async def graph_stats(user: str = Depends(get_current_user)) -> GraphStatsResponse:
     """Return graph node/edge counts to prove the graph is real."""
     if G is None:
         raise HTTPException(status_code=503, detail="Graph not initialized")
@@ -318,25 +321,63 @@ async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
     )
 
 
-from graph.traversal import collect_churn_signals
-from prediction.engine import score_churn
+@app.get("/api/graph/data")
+async def graph_data(
+    limit: int = 200,
+    user: str = Depends(get_current_user),
+) -> dict:
+    """Return graph nodes and edges for visualization (limited for performance)."""
+    if G is None:
+        raise HTTPException(status_code=503, detail="Graph not initialized")
+
+    priority_types = ["customer", "product", "order"]
+    nodes = []
+    seen_nodes = set()
+
+    for nid, attrs in G.nodes(data=True):
+        node_type = attrs.get("node_type", "unknown")
+        if node_type in priority_types and len(nodes) < limit:
+            label = attrs.get("name") or attrs.get("customer_id") or attrs.get("product_id") or attrs.get("order_id") or nid
+            nodes.append({
+                "id": nid,
+                "label": str(label),
+                "type": node_type,
+            })
+            seen_nodes.add(nid)
+
+    edges = []
+    for source, target, attrs in G.edges(data=True):
+        if source in seen_nodes and target in seen_nodes:
+            edges.append({
+                "source": source,
+                "target": target,
+                "type": attrs.get("edge_type", "unknown"),
+            })
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "total_nodes": G.number_of_nodes(),
+        "total_edges": G.number_of_edges(),
+    }
+
 
 @app.get("/api/customer/{customer_id}")
+async def get_customer_profile(customer_id: str, user: str = Depends(get_current_user)):
     """
     Fetch a complete customer profile and churn risk from the graph.
     """
     node_id = f"customer:{customer_id}"
     if G is None:
         raise HTTPException(status_code=503, detail="Graph not initialized")
-    
+
     if node_id not in G.nodes:
         raise HTTPException(status_code=404, detail="Customer not found")
-    
+
     customer_node = G.nodes[node_id]
     if customer_node.get("node_type") != "customer":
         raise HTTPException(status_code=400, detail="Node is not a customer")
-    
-    # 1. Basic Profile
+
     profile = {
         "id": customer_id,
         "name": customer_node.get("name", ""),
@@ -346,17 +387,13 @@ from prediction.engine import score_churn
         "signup_date": customer_node.get("signup_date", ""),
         "acq_channel": customer_node.get("acq_channel", ""),
     }
-    
-    # 2. Orders and Order Items
+
     orders = []
     order_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "order"]
-    
-    # Sort orders by date desc
     order_nodes.sort(key=lambda n: G.nodes[n].get("order_date", ""), reverse=True)
-    
+
     for on in order_nodes:
         o_attrs = G.nodes[on]
-        # Get items for this order
         items = []
         for pn in G.successors(on):
             if G.nodes[pn].get("node_type") == "product":
@@ -369,7 +406,7 @@ from prediction.engine import score_churn
                     "unit_price": edge_attrs.get("unit_price", 0.0),
                     "returned": edge_attrs.get("returned", False),
                 })
-        
+
         orders.append({
             "order_id": on,
             "order_date": o_attrs.get("order_date", ""),
@@ -379,8 +416,7 @@ from prediction.engine import score_churn
             "promised_days": o_attrs.get("promised_days", 0),
             "items": items,
         })
-    
-    # 3. Interactions
+
     interactions = []
     interaction_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "interaction"]
     interaction_nodes.sort(key=lambda n: G.nodes[n].get("date", ""), reverse=True)
@@ -394,8 +430,7 @@ from prediction.engine import score_churn
             "resolved": i_attrs.get("resolved", False),
             "resolution_hours": i_attrs.get("resolution_hours", 0),
         })
-        
-    # 4. Campaigns
+
     campaigns = []
     campaign_nodes = [n for n in G.successors(node_id) if G.nodes[n].get("node_type") == "campaign"]
     campaign_nodes.sort(key=lambda n: G.nodes[n].get("sent_date", ""), reverse=True)
@@ -409,11 +444,10 @@ from prediction.engine import score_churn
             "clicked": c_attrs.get("clicked", False),
             "converted": c_attrs.get("converted", False),
         })
-        
-    # 5. Churn Signals and Score
+
     raw_signals, _ = collect_churn_signals(G, node_id)
     score, confidence, factors = score_churn(raw_signals)
-    
+
     return {
         "profile": profile,
         "orders": orders,
@@ -424,8 +458,10 @@ from prediction.engine import score_churn
             "confidence": confidence,
             "top_factors": factors,
             "raw_signals": raw_signals,
-        }
+        },
     }
 
+
 @app.get("/api/health")
+async def health() -> dict:
     return {"status": "ok", "graph_loaded": G is not None}

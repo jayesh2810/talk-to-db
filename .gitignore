@@ -13,3 +13,6 @@ frontend/dist/
 
 # OS
 .DS_Store
+
+# Claude Code (local skills; not part of the app)
+.claude/skills/

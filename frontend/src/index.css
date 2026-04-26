@@ -1,12 +1,15 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    @apply bg-gray-950 text-gray-100 antialiased;
-    background-image: radial-gradient(circle at 50% -20%, #1e1b4b 0%, #030712 40%);
-    background-attachment: fixed;
+    font-family: 'Inter', sans-serif;
+    @apply bg-surface text-on-surface antialiased;
+    margin: 0;
   }
 
   ::-webkit-scrollbar {
@@ -14,18 +17,27 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-gray-900;
+    @apply bg-surface-container-low;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-700 rounded-full;
+    @apply bg-outline-variant rounded-full;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-600;
+    @apply bg-outline;
   }
 }
 
 @layer components {
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
   .glass-panel {
-    @apply bg-gray-900/50 backdrop-blur-md border border-gray-800/50;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .data-grid-bg {
+    background-image: radial-gradient(circle at 2px 2px, rgba(173, 198, 255, 0.05) 1px, transparent 0);
+    background-size: 40px 40px;
   }
 }

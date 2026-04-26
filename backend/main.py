@@ -100,8 +100,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="KumoRFM Demo",
-    description="Relational Predictive Analytics via graph-native multi-hop traversal",
+    title="Relational Fonudatinal Model Test",
+    description="Relational Foundational Model Test via graph-native multi-hop traversal",
     version="1.0.0",
     lifespan=lifespan,
 )

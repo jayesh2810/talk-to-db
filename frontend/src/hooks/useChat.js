@@ -60,10 +60,47 @@ export function useChat() {
     }
   }, [messages, isLoading, getAuthHeader])
 
+  const compareResults = useCallback(async (text, history) => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`${API_BASE}/compare`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          ...getAuthHeader()
+        },
+        body: JSON.stringify({ message: text, history }),
+      })
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(err.detail || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      const comparisonMessage = {
+        role: 'assistant',
+        content: data.summary,
+        comparison: true,
+        comparison_data: data,
+        summary: data.summary,
+      }
+
+      setMessages(prev => [...prev, comparisonMessage])
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [getAuthHeader])
+
   const clearHistory = useCallback(() => {
     setMessages([])
     setError(null)
   }, [])
 
-  return { messages, isLoading, error, sendMessage, clearHistory }
+  return { messages, isLoading, error, sendMessage, compareResults, clearHistory }
 }

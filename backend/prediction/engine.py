@@ -19,7 +19,9 @@ from prediction.signals import (
 )
 
 
-def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
+def score_churn(
+    signals: dict[str, Any], *, sql_mode: bool = False
+) -> tuple[float, float, list[dict]]:
     """
     Score churn probability for a customer.
 
@@ -29,8 +31,11 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
     Weights reflect empirical importance from retention research:
       - Recency is the strongest single predictor
       - Multi-hop peer signal captures social/category-level churn contagion
+
+    When sql_mode=True, the graph-derived peer_churn_rate is excluded and remaining
+    weights are renormalized (SQL-style baseline for comparison with graph scores).
     """
-    weights = {
+    weights: dict[str, float] = {
         "days_since_last_order":     0.28,
         "return_rate":               0.20,
         "negative_interaction_rate": 0.18,
@@ -38,6 +43,10 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
         "peer_churn_rate":           0.12,
         "unresolved_issues":         0.07,
     }
+    if sql_mode:
+        weights.pop("peer_churn_rate", None)
+        wsum = sum(weights.values())
+        weights = {k: v / wsum for k, v in weights.items()}
 
     normalized = {
         "days_since_last_order":     normalize_days(signals.get("days_since_last_order", 0), max_days=90),
@@ -50,7 +59,7 @@ def score_churn(signals: dict[str, Any]) -> tuple[float, float, list[dict]]:
 
     score = clamp(sum(normalized[k] * weights[k] for k in weights))
 
-    signal_values = list(normalized.values())
+    signal_values = [normalized[k] for k in weights]
     confidence = variance_confidence(signal_values, score)
 
     # Reduce confidence for customers with very few data points

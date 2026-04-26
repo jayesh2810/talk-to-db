@@ -18,51 +18,31 @@ export default function AuthModal() {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden bg-surface text-on-surface selection:bg-primary-container selection:text-on-primary-container">
-      {/* Background Layer with Connectivity Visuals */}
-      <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 data-grid-bg opacity-30"></div>
-        <div className="absolute top-[-10%] right-[-10%] w-[600px] h-[600px] bg-primary/10 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-tertiary/5 blur-[100px] rounded-full"></div>
-        <svg className="absolute inset-0 w-full h-full opacity-10" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="line-grad" x1="0%" x2="100%" y1="0%" y2="100%">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0"></stop>
-              <stop offset="50%" stopColor="currentColor" stopOpacity="1"></stop>
-              <stop offset="100%" stopColor="currentColor" stopOpacity="0"></stop>
-            </linearGradient>
-          </defs>
-          <line className="text-primary" stroke="url(#line-grad)" strokeWidth="0.5" x1="10%" x2="90%" y1="20%" y2="80%"></line>
-          <line className="text-tertiary" stroke="url(#line-grad)" strokeWidth="0.5" x1="80%" x2="20%" y1="10%" y2="90%"></line>
-          <circle cx="30%" cy="40%" fill="white" fillOpacity="0.2" r="2"></circle>
-          <circle cx="70%" cy="60%" fill="white" fillOpacity="0.2" r="2"></circle>
-        </svg>
-      </div>
-
+    <div className="fixed inset-0 z-[100] overflow-hidden bg-slate-950 text-slate-200 selection:bg-indigo-500 selection:text-white">
       {/* Main Content Canvas */}
-      <main className="relative z-10 flex min-h-screen items-center justify-center p-gutter">
-        <div className="w-full max-w-[480px]">
+      <main className="relative z-10 flex min-h-screen items-center justify-center p-6 bg-slate-950">
+        <div className="w-full max-w-md">
           {/* Header Section */}
-          <div className="mb-xl text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-slate-900/80 border border-white/10 mb-md shadow-2xl">
-              <span className="material-symbols-outlined text-primary text-4xl">hub</span>
+          <div className="mb-8 text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg bg-indigo-600 text-white mb-4 shadow-lg shadow-indigo-500/20">
+               <span className="material-symbols-outlined text-3xl">hub</span>
             </div>
-            <h1 className="font-headline-xl text-headline-xl text-on-surface tracking-tighter">DataCommand AI</h1>
-            <p className="font-body-md text-body-md text-on-surface-variant mt-xs">Access your intellectual command center</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">DataCommand AI</h1>
+            <p className="text-slate-400 mt-2">Enterprise Intelligence Engine</p>
           </div>
 
           {/* Login Card */}
-          <div className="glass-panel rounded-xl shadow-[0_20px_50px_rgba(2,6,23,0.7)] p-xl">
-            <form onSubmit={handleSubmit} className="space-y-lg">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
               {/* Email Field */}
-              <div className="space-y-xs">
-                <label className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest" htmlFor="email">Enterprise Email</label>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider" htmlFor="email">Enterprise Email</label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-md flex items-center pointer-events-none">
-                    <span className="material-symbols-outlined text-outline text-[20px] group-focus-within:text-primary transition-colors">mail</span>
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="material-symbols-outlined text-slate-500 text-lg group-focus-within:text-indigo-500 transition-colors">mail</span>
                   </div>
                   <input 
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg py-3 pl-11 pr-md font-body-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-on-surface placeholder:text-outline/50" 
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-all" 
                     id="email" 
                     name="email" 
                     placeholder="name@company.com" 
@@ -75,17 +55,17 @@ export default function AuthModal() {
               </div>
 
               {/* Password Field */}
-              <div className="space-y-xs">
+              <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <label className="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest" htmlFor="password">Security Key</label>
-                  <a className="font-label-md text-label-md text-primary hover:text-primary-fixed transition-colors" href="#">Forgot Access?</a>
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider" htmlFor="password">Security Key</label>
+                  <a className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors" href="#">Forgot Access?</a>
                 </div>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-md flex items-center pointer-events-none">
-                    <span className="material-symbols-outlined text-outline text-[20px] group-focus-within:text-primary transition-colors">lock</span>
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="material-symbols-outlined text-slate-500 text-lg group-focus-within:text-indigo-500 transition-colors">lock</span>
                   </div>
                   <input 
-                    className="w-full bg-surface-container-lowest border border-outline-variant rounded-lg py-3 pl-11 pr-md font-body-md text-body-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-on-surface placeholder:text-outline/50" 
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500 transition-all" 
                     id="password" 
                     name="password" 
                     placeholder="••••••••••••" 
@@ -94,21 +74,18 @@ export default function AuthModal() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
-                  <div className="absolute inset-y-0 right-0 pr-md flex items-center cursor-pointer text-outline hover:text-on-surface transition-colors">
-                    <span className="material-symbols-outlined text-[20px]">visibility</span>
-                  </div>
                 </div>
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg bg-error/10 border border-error/20 text-xs text-error text-center animate-in fade-in slide-in-from-top-1">
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400 text-center animate-in fade-in slide-in-from-top-1">
                   {error}
                 </div>
               )}
 
               {/* Submit Button */}
               <button 
-                className="w-full bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md py-4 rounded-lg shadow-xl shadow-primary/10 transition-all active:scale-[0.98] flex items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed" 
+                className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-lg shadow-lg shadow-indigo-600/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" 
                 type="submit"
                 disabled={loading}
               >
@@ -130,69 +107,41 @@ export default function AuthModal() {
             </form>
 
             {/* Divider */}
-            <div className="relative my-xl">
+            <div className="relative my-8">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-outline-variant"></span>
+                <span className="w-full border-t border-slate-800"></span>
               </div>
               <div className="relative flex justify-center text-xs">
-                <span className="bg-[#151c2c] px-md font-label-md text-on-surface-variant uppercase tracking-widest">Or authenticate via</span>
+                <span className="bg-slate-900 px-3 text-slate-500 uppercase tracking-widest font-medium">Or authenticate via</span>
               </div>
             </div>
 
             {/* SSO Options */}
-            <div className="grid grid-cols-2 gap-md">
-              <button className="flex items-center justify-center gap-2 py-3 px-md border border-outline-variant rounded-lg font-label-md text-label-md text-on-surface hover:bg-white/5 transition-colors group">
-                <img alt="Google" className="w-5 h-5 grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQo8YMVf1T6qyAclvnzRHRvKIvmnIUyTd8ob7Sb-548C-bk7nLc-wqrU25juvDiN3B92EskHj9hQTjhem_Vy4UKe0tqnYWGzECQa8ZJkoDOllLs0qOwfvLJPuxtAVYY_cSj78rqYL6z9WNGOiLWKCGxz6SOmZZs09u9cbXbGc41Td8bvALa2vefFlnxyJxSyzPesno7trOL3jxXPR-RIv_I3M7xPTTIf_OERbpS8r_DgvmAZV9IWaTCpOej-8AdOG7iEWTXESvFsLC"/>
+            <div className="grid grid-cols-2 gap-4">
+              <button className="flex items-center justify-center gap-2 py-2.5 px-4 border border-slate-800 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors group">
+                <img alt="Google" className="w-4 h-4 grayscale group-hover:grayscale-0 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQo8YMVf1T6qyAclvnzRHRvKIvmnIUyTd8ob7Sb-548C-bk7nLc-wqrU25juvDiN3B92EskHj9hQTjhem_Vy4UKe0tqnYWGzECQa8ZJkoDOllLs0qOwfvLJPuxtAVYY_cSj78rqYL6z9WNGOiLWKCGxz6SOmZZs09u9cbXbGc41Td8bvALa2vefFlnxyJxSyzPesno7trOL3jxXPR-RIv_I3M7xPTTIf_OERbpS8r_DgvmAZV9IWaTCpOej-8AdOG7iEWTXESvFsLC"/>
                 <span>Google</span>
               </button>
-              <button className="flex items-center justify-center gap-2 py-3 px-md border border-outline-variant rounded-lg font-label-md text-label-md text-on-surface hover:bg-white/5 transition-colors group">
-                <span className="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">security</span>
+              <button className="flex items-center justify-center gap-2 py-2.5 px-4 border border-slate-800 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800 transition-colors group">
+                <span className="material-symbols-outlined text-slate-500 group-hover:text-indigo-500 transition-colors text-lg">security</span>
                 <span>Okta SSO</span>
               </button>
             </div>
           </div>
 
           {/* Footer Links */}
-          <div className="mt-xl flex flex-col items-center gap-md">
-            <p className="font-body-md text-body-md text-on-surface-variant">
-              New to DataCommand? <a className="text-primary font-semibold hover:underline" href="#">Request Provisioning</a>
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <p className="text-sm text-slate-500">
+              New to DataCommand? <a className="text-indigo-400 font-medium hover:underline" href="#">Request Provisioning</a>
             </p>
-            <div className="flex gap-lg">
-              <a className="font-label-md text-[10px] text-outline uppercase tracking-widest hover:text-on-surface-variant transition-colors" href="#">Trust Center</a>
-              <a className="font-label-md text-[10px] text-outline uppercase tracking-widest hover:text-on-surface-variant transition-colors" href="#">Privacy Policy</a>
-              <a className="font-label-md text-[10px] text-outline uppercase tracking-widest hover:text-on-surface-variant transition-colors" href="#">System Status</a>
+            <div className="flex gap-6">
+              <a className="text-[10px] text-slate-600 uppercase tracking-widest hover:text-slate-400 transition-colors" href="#">Trust Center</a>
+              <a className="text-[10px] text-slate-600 uppercase tracking-widest hover:text-slate-400 transition-colors" href="#">Privacy Policy</a>
+              <a className="text-[10px] text-slate-600 uppercase tracking-widest hover:text-slate-400 transition-colors" href="#">System Status</a>
             </div>
           </div>
         </div>
       </main>
-
-      {/* Visual Accents */}
-      <div className="fixed bottom-margin right-margin z-0 pointer-events-none hidden lg:block">
-        <div className="glass-panel p-md rounded-xl w-64 shadow-2xl rotate-3 translate-y-10 opacity-40">
-          <div className="flex items-center gap-sm mb-xs">
-            <span className="w-2 h-2 rounded-full bg-tertiary"></span>
-            <div className="h-2 w-20 bg-outline-variant rounded"></div>
-          </div>
-          <div className="space-y-xs">
-            <div className="h-1.5 w-full bg-outline-variant/30 rounded"></div>
-            <div className="h-1.5 w-4/5 bg-outline-variant/30 rounded"></div>
-          </div>
-        </div>
-      </div>
-      <div className="fixed top-margin left-margin z-0 pointer-events-none hidden lg:block">
-        <div className="glass-panel p-md rounded-xl w-48 shadow-2xl -rotate-6 -translate-y-5 opacity-30">
-          <div className="flex justify-between items-center mb-sm">
-            <div className="h-3 w-12 bg-primary/20 rounded"></div>
-            <span className="material-symbols-outlined text-primary/40 text-sm">query_stats</span>
-          </div>
-          <div className="flex items-end gap-1 h-8">
-            <div className="flex-1 bg-primary/10 h-1/2 rounded-t-sm"></div>
-            <div className="flex-1 bg-primary/20 h-3/4 rounded-t-sm"></div>
-            <div className="flex-1 bg-primary/30 h-full rounded-t-sm"></div>
-            <div className="flex-1 bg-primary/10 h-1/3 rounded-t-sm"></div>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

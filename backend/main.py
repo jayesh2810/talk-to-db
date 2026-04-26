@@ -464,4 +464,5 @@ async def get_customer_profile(customer_id: str, user: str = Depends(get_current
 
 @app.get("/api/health")
 async def health() -> dict:
+    """Health check (unauthenticated — used to verify credentials at login)."""
     return {"status": "ok", "graph_loaded": G is not None}

@@ -487,7 +487,58 @@ def collect_fraud_signals(
     return signals, steps
 
 
-# ─── Demand forecast signal collection ───────────────────────────────────────
+# ─── Recovery Analysis ───────────────────────────────────────────────────────────
+
+def extract_recent_positive_events(G: nx.DiGraph, customer_node: str) -> list[dict[str, Any]]:
+    """
+    Identify recent positive events (last 30 days) that could be recovery signals.
+    Returns a list of events: [{'type': 'campaign', 'id': '...', 'name': '...'}, ...]
+    """
+    events = []
+    # Use a 30-day window for "recovery" signals
+    window = 30
+
+    # 1. Recent Campaign Conversions
+    campaign_nodes = _successors_of_type(G, customer_node, "campaign")
+    for cn in campaign_nodes:
+        attrs = G.nodes[cn]
+        if _bool(attrs, "converted") and _days_ago(_str(attrs, "sent_date")) <= window:
+            events.append({
+                "type": "campaign",
+                "id": cn,
+                "name": _str(attrs, "campaign_name"),
+                "detail": "Converted on campaign"
+            })
+
+    # 2. Recent Product Purchases (especially high-value or category-diverse)
+    order_nodes = _successors_of_type(G, customer_node, "order")
+    for on in order_nodes:
+        attrs = G.nodes[on]
+        if _str(attrs, "status") == "completed" and _days_ago(_str(attrs, "order_date")) <= window:
+            product_nodes = _successors_of_type(G, on, "product")
+            for pn in product_nodes:
+                p_attrs = G.nodes[pn]
+                events.append({
+                    "type": "product",
+                    "id": pn,
+                    "name": _str(p_attrs, "name"),
+                    "category": _str(p_attrs, "category"),
+                    "detail": f"Purchased { _str(p_attrs, 'name') }"
+                })
+
+    # 3. Recently Resolved Issues
+    interaction_nodes = _successors_of_type(G, customer_node, "interaction")
+    for in_node in interaction_nodes:
+        attrs = G.nodes[in_node]
+        if _bool(attrs, "resolved") and _days_ago(_str(attrs, "interaction_date")) <= window:
+            events.append({
+                "type": "interaction",
+                "id": in_node,
+                "name": _str(attrs, "topic"),
+                "detail": "Resolved support issue"
+            })
+
+    return events
 
 def collect_demand_signals(
     G: nx.DiGraph,

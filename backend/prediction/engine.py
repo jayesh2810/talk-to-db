@@ -17,6 +17,7 @@ from prediction.signals import (
     clamp,
     variance_confidence,
 )
+from graph.traversal import collect_churn_signals, extract_recent_positive_events
 
 
 def score_churn(
@@ -165,7 +166,7 @@ def score_fraud_risk(signals: dict[str, Any]) -> tuple[float, float, list[dict]]
 def score_demand(signals: dict[str, Any]) -> tuple[float, float, float]:
     """
     Produce demand forecast for a product category.
-
+    
     Returns:
         predicted_units: extrapolated units for the horizon period
         predicted_revenue: extrapolated revenue
@@ -190,3 +191,101 @@ def score_demand(signals: dict[str, Any]) -> tuple[float, float, float]:
 
     confidence = clamp(normalize_count(total, max_count=50))
     return predicted_units, predicted_revenue, round(confidence, 3)
+
+
+def get_prescriptive_action(
+    G, 
+    target_node: str, 
+    target_signals: dict[str, Any]
+) -> tuple[str, float]:
+    """
+    Find a 'recovery path' by identifying users with similar risk profiles 
+    who didn't churn, and extracting their most common recent positive events.
+    """
+    import networkx as nx
+
+    # 1. Define the "Risk Profile" (normalized values of the signals)
+    # We use the same normalization as score_churn
+    weights = {
+        "days_since_last_order": 0.28,
+        "return_rate": 0.20,
+        "negative_interaction_rate": 0.18,
+        "campaign_open_rate": 0.15,
+        "peer_churn_rate": 0.12,
+        "unresolved_issues": 0.07,
+    }
+    
+    target_normalized = {
+        "days_since_last_order":     normalize_days(target_signals.get("days_since_last_order", 0), max_days=90),
+        "return_rate":               normalize_rate(target_signals.get("return_rate", 0.0)),
+        "negative_interaction_rate": normalize_rate(target_signals.get("negative_interaction_rate", 0.0)),
+        "campaign_open_rate":        invert(target_signals.get("campaign_open_rate", 0.5)),
+        "peer_churn_rate":           normalize_rate(target_signals.get("peer_churn_rate", 0.0)),
+        "unresolved_issues":         normalize_count(target_signals.get("unresolved_issues", 0), max_count=3),
+    }
+
+    # Identify top drivers for the target customer
+    top_drivers = sorted(
+        target_normalized.items(), 
+        key=lambda x: x[1] * weights.get(x[0], 0), 
+        reverse=True
+    )[:2] # Focus on top 2 drivers for similarity
+
+    survivors = []
+    all_customers = [n for n, attrs in G.nodes(data=True) if attrs.get("node_type") == "customer" and n != target_node]
+
+    for node in all_customers:
+        signals, _ = collect_churn_signals(G, node)
+        score, _, _ = score_churn(signals)
+        
+        if score < 0.3: # Survivor: Low risk
+            # Check similarity on top drivers
+            is_similar = True
+            for driver, val in top_drivers:
+                # Survivor is similar if they also have high normalized values for the same drivers
+                # (meaning they faced the same risks)
+                s_val = {
+                    "days_since_last_order":     normalize_days(signals.get("days_since_last_order", 0), max_days=90),
+                    "return_rate":               normalize_rate(signals.get("return_rate", 0.0)),
+                    "negative_interaction_rate": normalize_rate(signals.get("negative_interaction_rate", 0.0)),
+                    "campaign_open_rate":        invert(signals.get("campaign_open_rate", 0.5)),
+                    "peer_churn_rate":           normalize_rate(signals.get("peer_churn_rate", 0.0)),
+                    "unresolved_issues":         normalize_count(signals.get("unresolved_issues", 0), max_count=3),
+                }.get(driver, 0)
+                
+                if s_val < 0.4: # Too low to be considered "facing the same risk"
+                    is_similar = False
+                    break
+            
+            if is_similar:
+                survivors.append(node)
+
+    if not survivors:
+        return "No specific recovery path found. Recommend general VIP outreach.", 0.0
+
+    # 2. Extract most common recent positive events among survivors
+    event_counts = {}
+    for s_node in survivors:
+        events = extract_recent_positive_events(G, s_node)
+        for e in events:
+            key = f"{e['type']}:{e['name']}"
+            event_counts[key] = event_counts.get(key, 0) + 1
+
+    if not event_counts:
+        return "No clear recovery event found. Recommend auditing recent interactions.", 0.0
+
+    # 3. Find the best action
+    best_event_key = max(event_counts, key=event_counts.get)
+    count = event_counts[best_event_key]
+    prob = count / len(survivors)
+    
+    # Format the action string
+    etype, ename = best_event_key.split(":", 1)
+    action_map = {
+        "campaign": f"Enroll in campaign: {ename}",
+        "product": f"Offer discount on product: {ename}",
+        "interaction": f"Prioritize resolution of topic: {ename}"
+    }
+    
+    return action_map.get(etype, f"Focus on {ename}"), round(prob, 2)
+

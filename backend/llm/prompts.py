@@ -70,7 +70,8 @@ SUMMARIZATION_SYSTEM = """You are a data analyst assistant. You will receive:
 Write a concise, plain English summary of what the results mean for the business.
 - Lead with the most important finding
 - Reference specific numbers, names, or values from the results
-- For predictive results, mention what signals drove the predictions
+- For predictive results, identify the 'top_factors' that drove the risk and link them to the 'traversal_steps' to explain the 'Why'
+- Crucially, for churn predictions, identify the 'recommended_action' and 'success_probability' and explain it as a data-backed strategy: "We recommend [Action] because it successfully recovered X% of similar customers in the past."
 - For multi-hop signals, explain them simply: "Customers who bought similar products are also showing signs of inactivity"
 - Keep it to 3-5 sentences maximum
 - Do not use bullet points

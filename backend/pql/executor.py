@@ -47,6 +47,7 @@ from prediction.engine import (
     score_purchase_likelihood,
     score_fraud_risk,
     score_demand,
+    get_prescriptive_action,
 )
 from models.schemas import TraversalStep
 
@@ -243,6 +244,9 @@ def _run_churn(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]
         attrs = G.nodes[node]
         signals, steps = collect_churn_signals(G, node)
         churn_score, confidence, top_factors = score_churn(signals)
+        
+        # Get prescriptive recovery action
+        rec_action, success_prob = get_prescriptive_action(G, node, signals)
 
         if not all_traversal_steps and steps:
             # Only include traversal steps for the highest-risk customer (first after sort)
@@ -257,6 +261,8 @@ def _run_churn(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]
             "score": churn_score,
             "confidence": confidence,
             "top_factors": top_factors,
+            "recommended_action": rec_action,
+            "success_probability": success_prob,
             "_node": node,
             "_signals": signals,
             "_steps": steps,
@@ -280,7 +286,7 @@ def _run_churn(G: nx.DiGraph, filters: list[dict], limit: int) -> dict[str, Any]
         "query_type": "predictive",
         "results": rows,
         "traversal_steps": all_traversal_steps,
-        "columns": ["name", "segment", "city", "score", "confidence", "top_factors"],
+        "columns": ["name", "segment", "city", "score", "confidence", "top_factors", "recommended_action", "success_probability"],
         "total_results": total,
     }
 

@@ -18,15 +18,14 @@ export function useChat() {
     setIsLoading(true)
     setError(null)
 
-    // Build history for the API (all prior messages except the one we just added)
     const history = messages.map(m => ({ role: m.role, content: m.content }))
 
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeader()
+          ...getAuthHeader(),
         },
         body: JSON.stringify({ message: text, history }),
       })
@@ -53,54 +52,16 @@ export function useChat() {
       setMessages(prev => [...prev, assistantMessage])
     } catch (err) {
       setError(err.message)
-      // Remove the user message we optimistically added
       setMessages(prev => prev.slice(0, -1))
     } finally {
       setIsLoading(false)
     }
   }, [messages, isLoading, getAuthHeader])
 
-  const compareResults = useCallback(async (text, history) => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`${API_BASE}/compare`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          ...getAuthHeader()
-        },
-        body: JSON.stringify({ message: text, history }),
-      })
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ detail: 'Unknown error' }))
-        throw new Error(err.detail || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      const comparisonMessage = {
-        role: 'assistant',
-        content: data.summary,
-        comparison: true,
-        comparison_data: data,
-        summary: data.summary,
-      }
-
-      setMessages(prev => [...prev, comparisonMessage])
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [getAuthHeader])
-
   const clearHistory = useCallback(() => {
     setMessages([])
     setError(null)
   }, [])
 
-  return { messages, isLoading, error, sendMessage, compareResults, clearHistory }
+  return { messages, isLoading, error, sendMessage, clearHistory }
 }

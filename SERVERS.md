@@ -16,7 +16,7 @@ uvicorn main:app --reload
 - **Interactive docs (Swagger):** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Health check:** [http://localhost:8000/api/health](http://localhost:8000/api/health)
 
-Ensure `backend/.env` exists with `ANTHROPIC_API_KEY` set (see backend startup in `main.py`).
+Ensure `backend/.env` exists with **`ANTHROPIC_API_KEY`** and **`KUMO_API_KEY`** (required). Optional: **`BASIC_AUTH_USER`** / **`BASIC_AUTH_PASSWORD`** for UI login (defaults: `1028@admin`). Analytics data is only the Kumo quickstart Parquet cache under `backend/data/kumo_rfm_cache/`.
 
 ## Frontend (Vite + React)
 

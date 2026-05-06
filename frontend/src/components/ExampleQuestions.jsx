@@ -1,10 +1,10 @@
 const QUESTIONS = [
-  'Which customers are most likely to churn in the next 90 days?',
-  'Show me our top 10 customers by lifetime value',
-  'Which recent orders have the highest fraud risk?',
-  'What products should we recommend to VIP customers?',
-  'How many orders were placed last month?',
-  'Which marketing campaigns are driving the most conversions?',
+  'Which users are most likely to churn in the next 90 days?',
+  'Which users are most likely to place another order in the next 90 days?',
+  'Forecast item demand — show top items by predicted revenue',
+  'Show me active users under age 35',
+  'How many orders have price greater than 50?',
+  'List items in the Trousers category',
 ]
 
 export default function ExampleQuestions({ onSelect }) {

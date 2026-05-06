@@ -35,6 +35,10 @@ export function AuthProvider({ children }) {
       })
 
       if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        if (!data.authenticated) {
+          throw new Error('Invalid credentials')
+        }
         setCredentials({ username, password })
         setIsAuthenticated(true)
         localStorage.setItem('kumo_auth', JSON.stringify({ username, password }))

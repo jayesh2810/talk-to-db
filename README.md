@@ -9,64 +9,35 @@ Natural language question
         │
         ▼
   ┌───────────┐
-  │  Claude   │  (NL → PQL generation)
+  │  Claude   │  NL → PQL
   └───────────┘
         │
         ▼
   ┌─────────────────────────────────────────┐
-  │           PQL Parser                    │
-  │   MATCH (factual) │ PREDICT (predictive)│
+  │  PQL Parser (MATCH factual | PREDICT)   │
   └─────────────────────────────────────────┘
-        │                    │
-        ▼                    ▼
-  Graph Node         Multi-Hop Graph
-  Lookup             Traversal
-  (filter/sort)      │
-                     ▼
-                Signal Collection
-                (recency, sentiment,
-                 campaign engagement,
-                 peer customer activity)
-                     │
-                     ▼
-                Weighted Scoring
-                Engine
-                     │
-                     ▼
-   ┌──────────────────────────────┐
-   │  Results + Traversal Steps  │
-   └──────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  Kumo online-shopping dataset           │
+  │  Parquet users / items / orders       │
+  │  → LocalGraph / KumoRFM               │
+  └─────────────────────────────────────────┘
+        │
+        ├── MATCH → pandas filter/sort on tables
+        └── PREDICT → KumoRFM model.predict(...)
         │
         ▼
   ┌───────────┐
-  │  Claude   │  (Results → Plain English Summary)
+  │  Claude   │  Results → summary
   └───────────┘
-        │
-        ▼
-  Chat UI: Summary + PQL Block + Traversal Steps + Results Table
 ```
 
-## The Graph Layer — Why It Matters
+Relational structure (**users** buy **items** via **orders**) is the graph KumoRFM reasons over. Chat and graph endpoints use only that cached quickstart data; login is HTTP Basic via **`BASIC_AUTH_*`** in `.env` (no database).
 
-Traditional text-to-SQL chatbots treat a database as a collection of flat tables joined by IDs. This project treats the database as a **graph of interrelated entities**, where each foreign key relationship becomes a typed edge.
+## Prescriptive-style responses
 
-**Node types:** `customer`, `product`, `order`, `interaction`, `campaign`
-
-**Edge types:** `placed`, `contains`, `bought_by`, `had_interaction`, `received_campaign`
-
-The critical architectural insight is the **multi-hop traversal**:
-
-```
-customer → orders → products → OTHER customers (peer customers)
-```
-
-If a customer bought the same products as several other customers who are now going inactive, that's a meaningful churn signal. Flat SQL joins cannot capture this because the signal lives **across three hops** in the entity graph — not within any single table.
-
-## Prescriptive Intelligence
-
-Beyond just predicting *who* is at risk, the system implements **Prescriptive Analysis**. By identifying "Positive Outliers"—customers who faced similar risk signals but managed to stay active—the agent autonomously extracts a "Recovery Path."
-
-It analyzes the recent events (campaigns, products, or support resolutions) of these survivors to suggest a specific, data-backed action to save at-risk customers, including a success probability based on historical recovery rates.
+Predictive rows may include **`recommended_action`** and **`success_probability`** templates produced by the KumoRFM integration layer (`rfm/predict.py`), framed for analysts in the summarization prompt—not from a separate handcrafted scoring engine.
 
 ## Setup
 
@@ -74,7 +45,7 @@ It analyzes the recent events (campaigns, products, or support resolutions) of t
 
 - Python 3.11+
 - Node.js 18+
-- An `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY` and `KUMO_API_KEY` (see `backend/.env.example`)
 
 ### 2. Backend
 
@@ -88,27 +59,22 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy the env template and add your key
+# Copy the env template and add your keys
 cp .env.example .env
-# Edit .env: ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env: ANTHROPIC_API_KEY=..., KUMO_API_KEY=...
 
-# Start the server (seeds DB and builds graph automatically on first run)
+# Start the server (downloads/caches Kumo quickstart Parquet on first run if needed)
 uvicorn main:app --reload
 ```
 
 The backend starts on `http://localhost:8000`.
 
-**Graph persistence:** The NetworkX graph is built once from SQLite and cached to `data/graph.graphml`. Subsequent restarts load from the cache (fast). To force a rebuild:
+**Login:** set `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` in `backend/.env` if you do not want the defaults (`1028@admin` / `1028@admin`). No SQLite file is used.
+
+**KumoRFM cache:** Parquet + pickled `LocalGraph` live under `data/kumo_rfm_cache/`. Force rebuild of the pickle:
 
 ```bash
-uvicorn main:app --reload -- --rebuild-graph
-```
-
-**Reseed the database:**
-
-```bash
-python data/seed.py --reseed
-# This deletes both ecommerce.db and graph.graphml, so the next startup rebuilds both
+uvicorn main:app --reload -- --rebuild-rfm-graph
 ```
 
 ### 3. Frontend
@@ -125,186 +91,61 @@ The frontend starts on `http://localhost:5173`.
 
 ### Factual (MATCH)
 
-**"Show me our top 10 customers by lifetime value"**
+**"Show active users under 40"**
 ```
-MATCH customer
-RETURN customer.name, customer.segment, customer.lifetime_value, customer.city
-ORDER BY customer.lifetime_value DESC
+MATCH users
+WHERE active = true AND age < 40
+RETURN user_id, age
+LIMIT 20
+```
+
+**"Items in category Trousers"**
+```
+MATCH items
+WHERE category = 'Trousers'
+RETURN item_id, item_name, color
+LIMIT 15
+```
+
+**"Recent high-value orders"**
+```
+MATCH orders
+WHERE date >= '2023-01-01'
+RETURN order_id, user_id, price
+ORDER BY price DESC
 LIMIT 10
-```
-→ Returns a ranked table of your most valuable customers.
-
-**"Which electronics products have a rating above 4.5?"**
-```
-MATCH product
-WHERE product.category = 'electronics'
-AND product.avg_rating >= 4.5
-RETURN product.name, product.price, product.avg_rating
-ORDER BY product.avg_rating DESC
-```
-
-**"How many orders were placed last month?"**
-```
-MATCH order
-WHERE order.order_date >= '2025-03-01'
-AND order.order_date <= '2025-03-31'
-RETURN order.order_id, order.customer_id, order.total_amount, order.status
 ```
 
 ### Predictive (PREDICT)
 
-**"Which customers are most likely to churn?"**
+**"Which users are most likely to churn?"**
 ```
 PREDICT churn_probability
 FOR EACH customer
-WHERE customer.segment != 'new'
-USING orders, interactions, campaign_touchpoints
+USING orders
 HORIZON 90 days
-RETURN customer.name, score, confidence, top_factors
+RETURN score
 ORDER BY score DESC
 LIMIT 20
 ```
-→ Traverses 3 hops: customer→orders→products→peer customers. Peer inactivity rate is the multi-hop signal that differentiates this from SQL-based churn models. High-risk customers score 0.75+.
+→ **KumoRFM** on online-shopping **`users`** / **`orders`**.
 
-**"Which recent orders have the highest fraud risk?"**
-```
-PREDICT fraud_risk
-FOR EACH order
-WHERE order.order_date >= '2026-04-10'
-USING customers, order_items
-RETURN order.order_id, score, confidence, top_factors
-ORDER BY score DESC
-LIMIT 10
-```
-→ Scores based on: new account age, order value, rapid order velocity (3-day window), and immediate returns.
-
-**"Forecast demand by product category for the next quarter"**
+**"Forecast demand by item"**
 ```
 PREDICT demand_forecast
-FOR EACH product.category
-USING orders, order_items
+FOR EACH product
+USING orders, items
 HORIZON 90 days
-RETURN category, predicted_units, predicted_revenue, confidence
-```
-→ Uses trend extrapolation from 30-day vs 60-day sales windows.
-
-
-## Setup
-
-### 1. Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- An `ANTHROPIC_API_KEY`
-
-### 2. Backend
-
-```bash
-cd backend
-
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy the env template and add your key
-cp .env.example .env
-# Edit .env: ANTHROPIC_API_KEY=sk-ant-...
-
-# Start the server (seeds DB and builds graph automatically on first run)
-uvicorn main:app --reload
-```
-
-The backend starts on `http://localhost:8000`.
-
-**Graph persistence:** The NetworkX graph is built once from SQLite and cached to `data/graph.graphml`. Subsequent restarts load from the cache (fast). To force a rebuild:
-
-```bash
-uvicorn main:app --reload -- --rebuild-graph
-```
-
-**Reseed the database:**
-
-```bash
-python data/seed.py --reseed
-# This deletes both ecommerce.db and graph.graphml, so the next startup rebuilds both
-```
-
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend starts on `http://localhost:5173`.
-
-## Example Queries
-
-### Factual (MATCH)
-
-**"Show me our top 10 customers by lifetime value"**
-```
-MATCH customer
-RETURN customer.name, customer.segment, customer.lifetime_value, customer.city
-ORDER BY customer.lifetime_value DESC
-LIMIT 10
-```
-→ Returns a ranked table of your most valuable customers.
-
-**"Which electronics products have a rating above 4.5?"**
-```
-MATCH product
-WHERE product.category = 'electronics'
-AND product.avg_rating >= 4.5
-RETURN product.name, product.price, product.avg_rating
-ORDER BY product.avg_rating DESC
-```
-
-**"How many orders were placed last month?"**
-```
-MATCH order
-WHERE order.order_date >= '2025-03-01'
-AND order.order_date <= '2025-03-31'
-RETURN order.order_id, order.customer_id, order.total_amount, order.status
-```
-
-### Predictive (PREDICT)
-
-**"Which customers are most likely to churn?"**
-```
-PREDICT churn_probability
-FOR EACH customer
-WHERE customer.segment != 'new'
-USING orders, interactions, campaign_touchpoints
-HORIZON 90 days
-RETURN customer.name, score, confidence, top_factors
+RETURN category, score, predicted_revenue
 ORDER BY score DESC
-LIMIT 20
+LIMIT 15
 ```
-→ Traverses 3 hops: customer→orders→products→peer customers. Peer inactivity rate is the multi-hop signal that differentiates this from SQL-based churn models. High-risk customers score 0.75+.
+→ Item-level demand-style predictions (`backend/rfm/predict.py`). **`fraud_risk`** is not supported on this dataset.
 
-**"Which recent orders have the highest fraud risk?"**
-```
-PREDICT fraud_risk
-FOR EACH order
-WHERE order.order_date >= '2026-04-10'
-USING customers, order_items
-RETURN order.order_id, score, confidence, top_factors
-ORDER BY score DESC
-LIMIT 10
-```
-→ Scores based on: new account age, order value, rapid order velocity (3-day window), and immediate returns.
+## Data sources
 
-**"Forecast demand by product category for the next quarter"**
-```
-PREDICT demand_forecast
-FOR EACH product.category
-USING orders, order_items
-HORIZON 90 days
-RETURN category, predicted_units, predicted_revenue, confidence
-```
-→ Uses trend extrapolation from 30-day vs 60-day sales windows.
+All analytics come from the **Kumo RFM quickstart** online-shopping dataset: Parquet files under `backend/data/kumo_rfm_cache/` (same source as [Kumo’s quickstart](https://kumo.ai/docs/quick-start/rfm/)), plus a pickled `LocalGraph` for fast restarts.
+
+Set **`ANTHROPIC_API_KEY`**, **`KUMO_API_KEY`**, and optionally **`BASIC_AUTH_*`**, in `backend/.env`.
+
+If you still have old local files from earlier demos (`ecommerce.db`, `auth.db`, `graph.graphml`, `kumo_online_shopping.db`), you can delete them — the app no longer reads them.

@@ -2,9 +2,8 @@ import React from 'react'
 import QueryDisplay from './QueryDisplay'
 import TraversalSteps from './TraversalSteps'
 import ResultTable from './ResultTable'
-import ComparisonView from './ComparisonView'
 
-export default function MessageBubble({ message, onCustomerClick, onCompare }) {
+export default function MessageBubble({ message, onCustomerClick }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end mb-6">
@@ -15,11 +14,9 @@ export default function MessageBubble({ message, onCustomerClick, onCompare }) {
     )
   }
 
-  // Assistant message — structured layout
   return (
     <div className="flex justify-start mb-8">
       <div className="max-w-4xl w-full space-y-4">
-        {/* Avatar + name */}
         <div className="flex items-center gap-2 px-1">
           <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 shadow-sm">
             K
@@ -27,35 +24,24 @@ export default function MessageBubble({ message, onCustomerClick, onCompare }) {
           <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Intelligence Engine</span>
         </div>
 
-        {/* 1. Plain-English Summary (read first) */}
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-2xl px-4 py-3 shadow-sm">
           <p className="text-sm text-slate-200 leading-relaxed">
             {message.summary || message.content}
           </p>
         </div>
 
-        {message.comparison && (
-          <ComparisonView data={message.comparison_data} />
-        )}
-
-        {/* 2. PQL Query block */}
         {message.pql_query && (
           <div className="transition-all duration-300">
-            <QueryDisplay
-              pqlQuery={message.pql_query}
-              queryType={message.query_type}
-            />
+            <QueryDisplay pqlQuery={message.pql_query} queryType={message.query_type} />
           </div>
         )}
 
-        {/* 3. Traversal Steps (predictive only) */}
         {message.traversal_steps && message.traversal_steps.length > 0 && (
           <div className="transition-all duration-300">
             <TraversalSteps steps={message.traversal_steps} />
           </div>
         )}
 
-        {/* 4. Results Table */}
         {message.results && message.results.length > 0 && (
           <div className="transition-all duration-300">
             <ResultTable
@@ -65,17 +51,6 @@ export default function MessageBubble({ message, onCustomerClick, onCompare }) {
               totalResults={message.total_results || message.results.length}
               onCustomerClick={onCustomerClick}
             />
-            {message.query_type === 'predictive' && !message.comparison && (
-              <div className="mt-4 flex justify-center">
-                <button 
-                  onClick={() => onCompare(message)}
-                  className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20"
-                >
-                  <span className="material-symbols-outlined text-sm">compare_arrows</span>
-                  Compare with SQL Baseline
-                </button>
-              </div>
-            )}
           </div>
         )}
       </div>

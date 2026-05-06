@@ -2,22 +2,20 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 
 const NODE_COLORS = {
+  user: '#6366f1',
+  item: '#8b5cf6',
+  order: '#ec4899',
   customer: '#6366f1',
   product: '#8b5cf6',
-  order: '#ec4899',
-  item: '#f59e0b',
-  interaction: '#10b981',
-  campaign: '#f97316',
   unknown: '#6b7280',
 }
 
 const NODE_RADIUS = {
+  user: 10,
+  item: 9,
+  order: 6,
   customer: 10,
   product: 9,
-  order: 6,
-  item: 5,
-  interaction: 5,
-  campaign: 5,
   unknown: 5,
 }
 
@@ -163,7 +161,7 @@ export default function GraphVisualization() {
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white mb-1">Graph Knowledge</h2>
         <p className="text-sm text-gray-400">
-          Interactive visualization of the e-commerce knowledge graph
+          Users and items linked by orders (Kumo online-shopping sample)
         </p>
       </div>
 
@@ -255,7 +253,7 @@ export default function GraphVisualization() {
                     strokeWidth={2}
                     opacity={hoveredNode && !isHovered ? 0.4 : 1}
                   />
-                  {(isHovered || node.type === 'customer' || node.type === 'product') && (
+                  {(isHovered || node.type === 'user' || node.type === 'customer' || node.type === 'item' || node.type === 'product') && (
                     <text
                       y={-radius - 4}
                       textAnchor="middle"

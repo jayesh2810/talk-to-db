@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import AuthModal from './components/AuthModal'
 
 function AppContent() {
-  const { messages, isLoading, error, sendMessage, compareResults, clearHistory } = useChat()
+  const { messages, isLoading, error, sendMessage, clearHistory } = useChat()
   const [input, setInput] = useState('')
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
   const [activeTab, setActiveTab] = useState('chat')
@@ -91,7 +91,6 @@ function AppContent() {
               error={error}
               onSend={handleSubmit}
               onCustomerClick={setSelectedCustomerId}
-              onCompare={compareResults}
             />
           </div>
 
@@ -149,7 +148,7 @@ function AppContent() {
               </button>
             </div>
             <p className="text-center text-[10px] text-slate-600 mt-3 font-mono tracking-tight uppercase">
-              NL <span className="text-slate-700">→</span> PQL <span className="text-slate-700">→</span> Graph Traversal <span className="text-slate-700">→</span> Prediction <span className="text-slate-700">→</span> Summary
+              NL <span className="text-slate-700">→</span> PQL <span className="text-slate-700">→</span> KumoRFM <span className="text-slate-700">→</span> Summary
             </p>
           </div>
         </>

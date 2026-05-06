@@ -21,12 +21,15 @@ function CollapsibleSection({ title, children, defaultOpen = true }) {
 
 function StatusBadge({ segment }) {
   const colors = {
+    active: 'bg-emerald-900 text-emerald-300 border-emerald-700',
+    inactive: 'bg-gray-800 text-gray-300 border-gray-600',
     vip: 'bg-indigo-900 text-indigo-300 border-indigo-700',
     at_risk: 'bg-red-900 text-red-300 border-red-700',
     returning: 'bg-emerald-900 text-emerald-300 border-emerald-700',
     new: 'bg-gray-700 text-gray-300 border-gray-600',
+    unknown: 'bg-gray-700 text-gray-300 border-gray-600',
   }
-  const color = colors[segment?.toLowerCase()] || colors.new
+  const color = colors[segment?.toLowerCase()] || colors.unknown
   return (
     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${color}`}>
       {segment?.toUpperCase()}
@@ -42,15 +45,15 @@ export default function CustomerDrawer({ customerId, onClose }) {
 
   useEffect(() => {
     if (!customerId) return
-    
+
     const fetchCustomer = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`http://localhost:8000/api/customer/${customerId}`, {
+        const res = await fetch(`/api/customer/${encodeURIComponent(customerId)}`, {
           headers: {
-            ...getAuthHeader()
-          }
+            ...getAuthHeader(),
+          },
         })
         if (!res.ok) throw new Error('Failed to fetch customer profile')
         const json = await res.json()
@@ -74,13 +77,13 @@ export default function CustomerDrawer({ customerId, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
       <div className="relative w-[480px] h-full bg-gray-900 border-l border-gray-800 shadow-2xl flex flex-col animate-slide-in">
         <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80 backdrop-blur-md">
-          <h2 className="text-lg font-semibold text-white">Customer Deep Dive</h2>
+          <h2 className="text-lg font-semibold text-white">User profile</h2>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -106,8 +109,18 @@ export default function CustomerDrawer({ customerId, onClose }) {
             </div>
           ) : (
             <>
-              <CollapsibleSection title="Profile">
+              <CollapsibleSection title="Profile" defaultOpen={false}>
                 <div className="grid grid-cols-2 gap-y-4 gap-x-6">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">User id</span>
+                    <span className="text-sm font-mono text-gray-200">{data.profile.id}</span>
+                  </div>
+                  {data.profile.age != null && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[10px] text-gray-500 uppercase font-bold">Age</span>
+                      <span className="text-sm text-gray-200">{data.profile.age}</span>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-gray-500 uppercase font-bold">Name</span>
                     <span className="text-sm text-gray-200">{data.profile.name}</span>
@@ -135,15 +148,15 @@ export default function CustomerDrawer({ customerId, onClose }) {
                 </div>
               </CollapsibleSection>
 
-              <CollapsibleSection title="Churn Risk">
+              <CollapsibleSection title="Churn Risk" defaultOpen={false}>
                 <div className="flex flex-col items-center gap-6">
                   <div className="relative w-32 h-32">
                     <svg className="w-full h-full" viewBox="0 0 100 100">
                       <circle cx="50" cy="50" r="45" fill="none" stroke="#1f2937" strokeWidth="10" />
-                      <circle 
-                        cx="50" cy="50" r="45" fill="none" 
-                        stroke={data.churn.score > 0.7 ? '#ef4444' : data.churn.score > 0.4 ? '#f59e0b' : '#10b981'} 
-                        strokeWidth="10" 
+                      <circle
+                        cx="50" cy="50" r="45" fill="none"
+                        stroke={data.churn.score > 0.7 ? '#ef4444' : data.churn.score > 0.4 ? '#f59e0b' : '#10b981'}
+                        strokeWidth="10"
                         strokeDasharray={`${data.churn.score * 282.7} 282.7`}
                         strokeLinecap="round"
                         transform="rotate(-90 50 50)"
@@ -167,7 +180,7 @@ export default function CustomerDrawer({ customerId, onClose }) {
                 </div>
               </CollapsibleSection>
 
-              <CollapsibleSection title="Order History">
+              <CollapsibleSection title="Order History" defaultOpen={false}>
                 <div className="space-y-3">
                   {data.orders.map((o, i) => (
                     <div key={i} className="border border-gray-800 rounded-lg overflow-hidden bg-gray-800/30">
@@ -179,7 +192,7 @@ export default function CustomerDrawer({ customerId, onClose }) {
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono text-gray-200">${o.total_amount}</span>
                           <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                            o.status === 'completed' ? 'border-emerald-700 text-emerald-400' : 
+                            o.status === 'completed' ? 'border-emerald-700 text-emerald-400' :
                             o.status === 'returned' ? 'border-red-700 text-red-400' : 'border-gray-600 text-gray-400'
                           }`}>
                             {o.status}
@@ -200,59 +213,6 @@ export default function CustomerDrawer({ customerId, onClose }) {
                     </div>
                   ))}
                 </div>
-              </CollapsibleSection>
-
-              <CollapsibleSection title="Interactions">
-                <div className="space-y-4 relative before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-gray-800">
-                  {data.interactions.map((int, i) => (
-                    <div key={i} className="relative pl-6">
-                      <div className={`absolute left-0 top-1.5 w-4 h-4 rounded-full border-2 border-gray-900 ${
-                        int.sentiment === 'positive' ? 'bg-emerald-500' : 
-                        int.sentiment === 'negative' ? 'bg-red-500' : 'bg-gray-500'
-                      }`} />
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-gray-300">{int.topic}</span>
-                          <span className="text-[10px] text-gray-500 font-mono">{int.date}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400">{int.channel}</span>
-                          {!int.resolved && (
-                            <span className="flex items-center gap-1 text-[10px] text-amber-500 font-bold">
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                              </svg>
-                              UNRESOLVED
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CollapsibleSection>
-
-              <CollapsibleSection title="Campaign Engagement">
-                <table className="w-full text-xs text-left">
-                  <thead>
-                    <tr className="text-gray-500 border-b border-gray-800">
-                      <th className="pb-2 font-medium">Campaign</th>
-                      <th className="pb-2 font-medium text-center">Opened</th>
-                      <th className="pb-2 font-medium text-center">Clicked</th>
-                      <th className="pb-2 font-medium text-center">Conv.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-gray-300">
-                    {data.campaigns.map((c, i) => (
-                      <tr key={i} className="border-b border-gray-800/50 last:border-0">
-                        <td className="py-2 pr-2">{c.campaign_name}</td>
-                        <td className="py-2 text-center">{c.opened ? '✅' : '—'}</td>
-                        <td className="py-2 text-center">{c.clicked ? '✅' : '—'}</td>
-                        <td className="py-2 text-center">{c.converted ? '✅' : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </CollapsibleSection>
             </>
           )}

@@ -3,21 +3,22 @@
 PQL_GENERATION_SYSTEM = """You are a query translator for a relational predictive analytics system.
 Your job is to convert a natural language question into a PQL (Predictive Query Language) query.
 
-The database has these tables: customers, products, orders, order_items, interactions, campaign_touchpoints.
+All queries run against the Kumo "online-shopping" demo dataset (same graph KumoRFM uses).
 
-Table columns:
-- customers: customer_id, name, email, signup_date, city, state, segment (new/returning/vip/at_risk), acq_channel, lifetime_value, order_count, completed_order_count, return_count, total_spent, avg_order_value, interaction_count, negative_interaction_count
-- products: product_id, name, category (electronics/apparel/home/beauty/food/sports), subcategory, price, cost, avg_rating, review_count, stock_level
-- orders: order_id, customer_id, order_date, total_amount, discount, shipping, status (completed/returned/cancelled/pending), delivery_days, promised_days
-- order_items: item_id, order_id, product_id, quantity, unit_price, returned
-- interactions: interaction_id, customer_id, interaction_date, channel, topic, sentiment (positive/neutral/negative), resolved, resolution_hours
-- campaign_touchpoints: touchpoint_id, customer_id, campaign_id, campaign_name, campaign_type, sent_date, opened, clicked, converted
+Table columns for FACTUAL MATCH:
+- users (MATCH users or MATCH customer): user_id, active (true/false), age
+- items (MATCH items or MATCH product): item_id, item_name, category, color, descriptions
+- orders (MATCH orders): order_id, user_id, item_id, date, sales_channel_id, price
+
+Aliases in WHERE/RETURN: customer_id means user_id; product_id means item_id.
 
 PQL has two modes:
 
 FACTUAL (use MATCH):
-- For questions about what exists, what happened, counts, lookups, rankings
-- Examples: "How many orders last month?", "Show me top products by rating", "Which customers are in New York?"
+- For questions about what exists, what happened, counts, lookups, rankings on users/items/orders
+- Examples: "How many active users?", "Items in category Trousers", "Top orders by price"
+- For "first N users/items/orders" or "list by id", add ORDER BY user_id ASC (or item_id / order_id) unless another sort is clearly requested.
+- Do NOT reference SQLite-only concepts (city, state, segment, sentiment, campaign_touchpoints).
 - Syntax:
   MATCH <entity>
   WHERE <filters>
@@ -27,7 +28,7 @@ FACTUAL (use MATCH):
 
 PREDICTIVE (use PREDICT):
 - For questions about what will happen, likelihood, risk, forecasting, recommendations
-- Examples: "Which customers will churn?", "What's the fraud risk on recent orders?", "Predict demand next quarter"
+- Examples: "Which users might churn?", "Purchase likelihood next 90 days", "Demand forecast by item category"
 - Syntax:
   PREDICT <prediction_type>
   FOR EACH <entity>
@@ -38,27 +39,18 @@ PREDICTIVE (use PREDICT):
   ORDER BY score DESC
   LIMIT <n>
 
-Available prediction types: churn_probability, purchase_likelihood, fraud_risk, demand_forecast
-
-Data conventions (important):
-- State values are 2-letter abbreviations: TX, CA, NY, IL, PA, AZ, FL, OH, NC, IN, WA, CO, TN, KY, MD, WI, etc.
-- acq_channel values: 'organic', 'paid_search', 'social', 'referral', 'email'
-- segment values: 'new', 'returning', 'vip', 'at_risk'
-- status values: 'completed', 'returned', 'cancelled', 'pending'
-- sentiment values: 'positive', 'neutral', 'negative'
-- shipping values: 'standard', 'express', 'same_day'
-- category values: 'electronics', 'apparel', 'home', 'beauty', 'food', 'sports'
+Available prediction types: churn_probability, purchase_likelihood, fraud_risk (not supported — use churn or purchase), demand_forecast
 
 Rules:
 - Output ONLY the PQL query. No explanation, no markdown, no backticks.
 - Choose MATCH for factual, PREDICT for predictive.
 - If unsure, default to MATCH.
 - Keep queries simple and parseable.
-- Always use the exact data convention values listed above (e.g. 'TX' not 'Texas').
-- For churn: use PREDICT churn_probability FOR EACH customer USING orders, interactions, campaign_touchpoints
-- For purchase likelihood: use PREDICT purchase_likelihood FOR EACH customer USING orders, products, campaign_touchpoints
-- For fraud: use PREDICT fraud_risk FOR EACH order USING customers, order_items
-- For demand: use PREDICT demand_forecast FOR EACH product.category USING orders, order_items"""
+- For factual MATCH, use real column names from users/items/orders (e.g. item category values like 'Trousers', 'Jersey' when filtering category).
+- For churn: use PREDICT churn_probability FOR EACH customer USING orders
+- For purchase likelihood: use PREDICT purchase_likelihood FOR EACH customer USING orders, items
+- Fraud prediction is not supported on this dataset — suggest purchase_likelihood or churn_probability instead.
+- For demand: use PREDICT demand_forecast FOR EACH product USING orders, items"""
 
 
 SUMMARIZATION_SYSTEM = """You are a data analyst assistant. You will receive:
@@ -68,6 +60,7 @@ SUMMARIZATION_SYSTEM = """You are a data analyst assistant. You will receive:
 4. For predictive queries: the traversal steps that were taken
 
 Write a concise, plain English summary of what the results mean for the business.
+- Rows come from the Kumo online-shopping demo dataset (`user_id`, `item_id`, orders, etc.).
 - Lead with the most important finding
 - Reference specific numbers, names, or values from the results
 - For predictive results, identify the 'top_factors' that drove the risk and link them to the 'traversal_steps' to explain the 'Why'
@@ -87,11 +80,24 @@ def build_summarization_message(
 ) -> str:
     """Build the user message for the result summarization call."""
     import json
+    import math
+
+    def _scrub_json_floats(obj: object) -> object:
+        """NaN/Inf break json.dumps and some JSON encoders used by APIs."""
+        if obj is None:
+            return None
+        if isinstance(obj, float):
+            return obj if math.isfinite(obj) else None
+        if isinstance(obj, dict):
+            return {k: _scrub_json_floats(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_scrub_json_floats(v) for v in obj]
+        return obj
 
     payload = {
         "question": question,
         "pql_query": pql_query,
-        "results": results[:20],  # cap to avoid token overflow
-        "traversal_steps": traversal_steps[:10] if traversal_steps else [],
+        "results": _scrub_json_floats(results[:20]),  # cap to avoid token overflow
+        "traversal_steps": _scrub_json_floats(traversal_steps[:10] if traversal_steps else []),
     }
-    return json.dumps(payload, indent=2, default=str)
+    return json.dumps(payload, indent=2, default=str, allow_nan=False)

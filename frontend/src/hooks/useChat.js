@@ -9,12 +9,15 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const sendMessage = useCallback(async (text) => {
+  const sendMessage = useCallback(async (text, options = {}) => {
     if (!text.trim() || isLoading) return
+    const { appendUser = true } = options
 
     const userMessage = { role: 'user', content: text }
 
-    setMessages(prev => [...prev, userMessage])
+    if (appendUser) {
+      setMessages(prev => [...prev, userMessage])
+    }
     setIsLoading(true)
     setError(null)
 
@@ -47,12 +50,21 @@ export function useChat() {
         columns: data.columns,
         total_results: data.total_results,
         summary: data.summary,
+        mode: data.mode || 'standard',
+        workflow_id: data.workflow_id || null,
+        stage: data.stage || null,
+        pending_approval: data.pending_approval || null,
+        proposal: data.proposal || null,
+        execution_summary: data.execution_summary || null,
+        agent_logs: data.agent_logs || [],
       }
 
       setMessages(prev => [...prev, assistantMessage])
     } catch (err) {
       setError(err.message)
-      setMessages(prev => prev.slice(0, -1))
+      if (appendUser) {
+        setMessages(prev => prev.slice(0, -1))
+      }
     } finally {
       setIsLoading(false)
     }

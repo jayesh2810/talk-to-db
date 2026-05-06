@@ -27,6 +27,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
+from agent.workflow import handle_goal_message
 from llm.claude import generate_pql, get_client, summarize_results
 from models.schemas import (
     ChatRequest,
@@ -127,6 +128,20 @@ async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> C
     if RFM_BUNDLE is None:
         raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
 
+    goal_response = handle_goal_message(user, request.message, RFM_BUNDLE)
+    if goal_response is not None:
+        return ChatResponse(
+            mode=goal_response.get("mode", "agent_goal"),
+            summary=goal_response.get("summary", ""),
+            query_type=goal_response.get("query_type", "agent_goal"),
+            workflow_id=goal_response.get("workflow_id"),
+            stage=goal_response.get("stage"),
+            pending_approval=goal_response.get("pending_approval"),
+            proposal=goal_response.get("proposal"),
+            execution_summary=goal_response.get("execution_summary"),
+            agent_logs=goal_response.get("agent_logs", []),
+        )
+
     history = [{"role": m.role, "content": m.content} for m in request.history]
     try:
         pql_query = generate_pql(request.message, history)
@@ -154,6 +169,7 @@ async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> C
     traversal_steps = [TraversalStep(**s) for s in traversal_steps_raw]
 
     return ChatResponse(
+        mode="standard",
         pql_query=pql_query,
         query_type=exec_result["query_type"],
         results=results,

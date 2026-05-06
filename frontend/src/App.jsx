@@ -21,6 +21,22 @@ function AppContent() {
     inputRef.current?.focus()
   }
 
+  const handleAgentAction = async (action, message) => {
+    const workflowId = message?.workflow_id || ''
+    if (action === 'approve') {
+      await sendMessage(`/goal approve ${workflowId}`.trim(), { appendUser: false })
+      return
+    }
+    if (action === 'revise') {
+      const hint = message?.stage === 'assumptions'
+        ? 'Example: uplift 15 reach 40 45 days'
+        : 'What should be revised?'
+      const revision = window.prompt(hint)
+      if (!revision || !revision.trim()) return
+      await sendMessage(`/goal revise ${workflowId} ${revision.trim()}`.trim(), { appendUser: false })
+    }
+  }
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -91,6 +107,7 @@ function AppContent() {
               error={error}
               onSend={handleSubmit}
               onCustomerClick={setSelectedCustomerId}
+              onAgentAction={handleAgentAction}
             />
           </div>
 

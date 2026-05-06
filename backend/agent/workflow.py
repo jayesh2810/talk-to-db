@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+import pandas as pd
+
 from llm.nvidia_agent import chat_json
 from pql.executor import execute
 from rfm.cache import RFMBundle
@@ -72,13 +74,140 @@ def _need_fields(obj: dict[str, Any], fields: list[str], ctx: str) -> None:
         raise ValueError(f"{ctx}: missing fields {missing}")
 
 
-def _plan_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
+def _dtype_name(dtype: Any) -> str:
+    return str(dtype).lower()
+
+
+def _is_pii_column(name: str) -> bool:
+    n = name.lower()
+    pii_tokens = (
+        "name",
+        "email",
+        "phone",
+        "address",
+        "city",
+        "zip",
+        "postal",
+        "ssn",
+        "dob",
+        "device",
+        "ip",
+    )
+    return any(t in n for t in pii_tokens)
+
+
+def _mask_value(v: Any) -> Any:
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v
+    s = str(v)
+    if len(s) <= 2:
+        return "**"
+    return f"{s[:1]}***{s[-1:]}"
+
+
+def _safe_table_profile(df: pd.DataFrame, table_name: str) -> dict[str, Any]:
+    row_count = int(len(df))
+    columns: list[dict[str, Any]] = []
+    for c in df.columns:
+        col = df[c]
+        dtype = _dtype_name(col.dtype)
+        null_pct = round(float(col.isna().mean() * 100), 2)
+        unique_count = int(col.nunique(dropna=True))
+        info: dict[str, Any] = {
+            "column": str(c),
+            "dtype": dtype,
+            "null_pct": null_pct,
+            "unique": unique_count,
+            "pii": _is_pii_column(str(c)),
+        }
+        if pd.api.types.is_numeric_dtype(col) and not pd.api.types.is_bool_dtype(col):
+            s = pd.to_numeric(col, errors="coerce").dropna()
+            if len(s):
+                info["min"] = float(s.min())
+                info["p50"] = float(s.quantile(0.5))
+                info["p90"] = float(s.quantile(0.9))
+                info["max"] = float(s.max())
+        columns.append(info)
+    return {"table": table_name, "rows": row_count, "columns": columns}
+
+
+def _risk_buckets_from_predictive_rows(rows: list[dict[str, Any]], score_key: str = "score") -> dict[str, Any]:
+    low = 0
+    med = 0
+    high = 0
+    for r in rows:
+        try:
+            s = float(r.get(score_key, 0.0))
+        except (TypeError, ValueError):
+            s = 0.0
+        if s >= 0.75:
+            high += 1
+        elif s >= 0.4:
+            med += 1
+        else:
+            low += 1
+    total = low + med + high
+    return {
+        "total": total,
+        "high": high,
+        "medium": med,
+        "low": low,
+    }
+
+
+def _masked_rows(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for r in rows[:limit]:
+        masked: dict[str, Any] = {}
+        for k, v in r.items():
+            if _is_pii_column(str(k)):
+                masked[k] = _mask_value(v)
+            else:
+                masked[k] = v
+        out.append(masked)
+    return out
+
+
+def _goal_context(bundle: RFMBundle, wf: GoalWorkflow) -> dict[str, Any]:
+    profile = {
+        "users": _safe_table_profile(bundle.users, "users"),
+        "orders": _safe_table_profile(bundle.orders, "orders"),
+        "items": _safe_table_profile(bundle.items, "items"),
+    }
+    user_count = int(len(bundle.users))
+    order_count = int(len(bundle.orders))
+    item_count = int(len(bundle.items))
+    orders_per_user = (float(order_count) / float(user_count)) if user_count else 0.0
+    revenue_total = float(pd.to_numeric(bundle.orders.get("price"), errors="coerce").fillna(0).sum()) if "price" in bundle.orders.columns else 0.0
+    return {
+        "objective": wf.objective,
+        "dataset_summary": {
+            "users": user_count,
+            "orders": order_count,
+            "items": item_count,
+            "orders_per_user_avg": round(orders_per_user, 3),
+            "revenue_total": round(revenue_total, 2),
+        },
+        "schema_profile": profile,
+        "privacy_mode": {
+            "raw_rows_shared": False,
+            "pii_policy": "name,email,phone,address,city,zip,device identifiers masked or excluded",
+        },
+    }
+
+
+def _plan_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, Any]:
     system = (
         "You are a goal-seeking analytics agent. Return STRICT JSON only. No markdown. "
         "Decide one goal_type from: churn_probability, purchase_likelihood, demand_forecast."
     )
     user = (
         f"Objective: {wf.objective}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         f"{SUPPORTED_HINT}\n"
         "Return JSON schema:\n"
         "{"
@@ -97,10 +226,11 @@ def _plan_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
     return out
 
 
-def _assumptions_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
+def _assumptions_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, Any]:
     system = "Return STRICT JSON only. No markdown."
     user = (
         f"Objective: {wf.objective}\nGoal type: {wf.plan.get('goal_type')}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         "Provide practical assumptions for this demo app.\n"
         "Schema:\n"
         "{"
@@ -120,7 +250,7 @@ def _assumptions_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
     return out
 
 
-def _queries_from_llm(wf: GoalWorkflow) -> dict[str, str]:
+def _queries_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, str]:
     system = (
         "Return STRICT JSON only. No markdown. "
         "Generate app-compatible PQL strings for this backend parser. "
@@ -131,6 +261,7 @@ def _queries_from_llm(wf: GoalWorkflow) -> dict[str, str]:
         f"Objective: {wf.objective}\n"
         f"Goal type: {wf.plan.get('goal_type')}\n"
         f"Assumptions: {wf.assumptions}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         "Schema:\n"
         "{"
         '"predictive_query": "...",'
@@ -171,18 +302,23 @@ def _run_with_retry(bundle: RFMBundle, primary_query: str, fallback_query: str) 
         return execute(fallback_query, bundle), fallback_query
 
 
-def _execution_summary_from_llm(wf: GoalWorkflow, queries: dict[str, str], pred: dict[str, Any], factual: dict[str, Any]) -> dict[str, Any]:
-    top_pred = pred.get("results", [])[:10]
-    top_fact = factual.get("results", [])[:10]
+def _execution_summary_from_llm(wf: GoalWorkflow, queries: dict[str, str], pred: dict[str, Any], factual: dict[str, Any], goal_ctx: dict[str, Any]) -> dict[str, Any]:
+    top_pred = pred.get("results", [])[:20]
+    top_fact = factual.get("results", [])[:20]
+    pred_buckets = _risk_buckets_from_predictive_rows(top_pred)
+    safe_pred_rows = _masked_rows(top_pred, 8)
+    safe_fact_rows = _masked_rows(top_fact, 8)
     system = "Return STRICT JSON only. No markdown."
     user = (
         f"Objective: {wf.objective}\n"
         f"Goal type: {wf.plan.get('goal_type')}\n"
         f"Assumptions: {wf.assumptions}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         f"Predictive query: {queries.get('predictive_query')}\n"
         f"Factual query: {queries.get('factual_query')}\n"
-        f"Predictive results sample: {top_pred}\n"
-        f"Factual results sample: {top_fact}\n"
+        f"Predictive risk buckets: {pred_buckets}\n"
+        f"Predictive masked sample rows: {safe_pred_rows}\n"
+        f"Factual masked sample rows: {safe_fact_rows}\n"
         "Create concise execution summary with schema:\n"
         "{"
         '"avg_top_score": 0.0,'
@@ -196,6 +332,7 @@ def _execution_summary_from_llm(wf: GoalWorkflow, queries: dict[str, str], pred:
     _need_fields(out, ["avg_top_score", "estimated_goal_movement_pct", "insight", "top_candidates", "supporting_rows"], "execution_summary")
     out["predictive_query"] = queries.get("predictive_query", "")
     out["factual_query"] = queries.get("factual_query", "")
+    out["risk_buckets"] = pred_buckets
     if not isinstance(out.get("top_candidates"), list):
         raise ValueError("execution_summary: top_candidates must be list")
     if not isinstance(out.get("supporting_rows"), list):
@@ -203,12 +340,13 @@ def _execution_summary_from_llm(wf: GoalWorkflow, queries: dict[str, str], pred:
     return out
 
 
-def _actions_from_llm(wf: GoalWorkflow) -> list[dict[str, Any]]:
+def _actions_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> list[dict[str, Any]]:
     system = "Return STRICT JSON only. No markdown."
     user = (
         f"Objective: {wf.objective}\n"
         f"Goal type: {wf.plan.get('goal_type')}\n"
         f"Assumptions: {wf.assumptions}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         f"Execution summary: {wf.execution_summary}\n"
         "Create top 3 prioritized actions.\n"
         "Schema: {\"final_actions\": [{\"priority\":1,\"action\":\"...\",\"expected_movement_pct\":1.2}]}"
@@ -242,17 +380,19 @@ def _agent_payload(wf: GoalWorkflow, summary: str) -> dict[str, Any]:
     }
 
 
-def _start_goal(user: str, objective: str) -> dict[str, Any]:
+def _start_goal(user: str, objective: str, bundle: RFMBundle) -> dict[str, Any]:
     wf = GoalWorkflow(
         workflow_id=str(uuid4())[:8],
         user=user,
         objective=objective,
     )
     _log(wf, "workflow_start", f"Objective received: {objective}")
+    goal_ctx = _goal_context(bundle, wf)
+    _log(wf, "privacy_context_built", "Using schema+aggregates+risk buckets; raw PII rows are blocked")
     try:
-        plan = _plan_from_llm(wf)
+        plan = _plan_from_llm(wf, goal_ctx)
         wf.plan = plan
-        wf.assumptions = _assumptions_from_llm(wf)
+        wf.assumptions = _assumptions_from_llm(wf, goal_ctx)
         _log(wf, "workflow_initialized", f"Goal type selected: {wf.plan.get('goal_type')}")
     except Exception as e:
         wf.execution_summary = {
@@ -274,6 +414,7 @@ def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict
     if workflow_id and wf.workflow_id != workflow_id:
         return {"mode": "agent_goal", "summary": f"Workflow id mismatch. Active workflow is `{wf.workflow_id}`.", "query_type": "agent_goal"}
     _log(wf, "approve_received", f"Stage={wf.stage}")
+    goal_ctx = _goal_context(bundle, wf)
 
     if wf.stage == "draft_plan":
         wf.stage = "assumptions"
@@ -285,7 +426,7 @@ def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict
         )
 
     if wf.stage == "assumptions":
-        queries = _queries_from_llm(wf)
+        queries = _queries_from_llm(wf, goal_ctx)
         try:
             _log(wf, "execute_predictive_attempt", queries["predictive_query"])
             pred, used_pred = _run_with_retry(bundle, queries["predictive_query"], queries["fallback_predictive_query"])
@@ -297,8 +438,8 @@ def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict
                 _log(wf, "execute_factual_retry", "Primary factual query failed; fallback used")
             queries["predictive_query"] = used_pred
             queries["factual_query"] = used_factual
-            wf.execution_summary = _execution_summary_from_llm(wf, queries, pred, factual)
-            wf.final_actions = _actions_from_llm(wf)
+            wf.execution_summary = _execution_summary_from_llm(wf, queries, pred, factual, goal_ctx)
+            wf.final_actions = _actions_from_llm(wf, goal_ctx)
             wf.stage = "final_actions"
             wf.pending_approval = "final_actions"
             _log(wf, "stage_transition", "Moved to final_actions checkpoint")
@@ -326,13 +467,14 @@ def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict
     return _agent_payload(wf, "Workflow already completed.")
 
 
-def _revise_goal(user: str, workflow_id: str | None, revision: str) -> dict[str, Any]:
+def _revise_goal(user: str, workflow_id: str | None, revision: str, bundle: RFMBundle) -> dict[str, Any]:
     wf = WORKFLOWS.get(user)
     if wf is None:
         return {"mode": "agent_goal", "summary": "No active workflow found to revise. Start with `/goal <objective>`.", "query_type": "agent_goal"}
     if workflow_id and wf.workflow_id != workflow_id:
         return {"mode": "agent_goal", "summary": f"Workflow id mismatch. Active workflow is `{wf.workflow_id}`.", "query_type": "agent_goal"}
     _log(wf, "revise_received", f"Stage={wf.stage}; revision={revision}")
+    goal_ctx = _goal_context(bundle, wf)
 
     system = "Return STRICT JSON only. No markdown."
     user_prompt = (
@@ -340,6 +482,7 @@ def _revise_goal(user: str, workflow_id: str | None, revision: str) -> dict[str,
         f"Objective: {wf.objective}\n"
         f"Current plan: {wf.plan}\n"
         f"Current assumptions: {wf.assumptions}\n"
+        f"Context (sanitized): {goal_ctx}\n"
         f"Revision request: {revision}\n"
         "Return schema:\n"
         "{"
@@ -359,7 +502,7 @@ def _revise_goal(user: str, workflow_id: str | None, revision: str) -> dict[str,
     _log(wf, "revise_applied", "Revision changes merged into workflow state")
 
     if wf.stage == "final_actions":
-        wf.final_actions = _actions_from_llm(wf)
+        wf.final_actions = _actions_from_llm(wf, goal_ctx)
         return _agent_payload(wf, "Final actions updated based on your revision. Approve to finalize.")
     if wf.stage == "assumptions":
         return _agent_payload(wf, "Assumptions updated. Approve to execute with revised values.")
@@ -393,7 +536,7 @@ def handle_goal_message(user: str, message: str, bundle: RFMBundle) -> dict[str,
                 "summary": "Please provide revision text after workflow id, e.g. `/goal revise 1234abcd uplift 15 reach 40`.",
                 "query_type": "agent_goal",
             }
-        return _revise_goal(user, wf_id, revision)
+        return _revise_goal(user, wf_id, revision, bundle)
 
     objective = raw[len("/goal") :].strip()
     if not objective:
@@ -402,4 +545,4 @@ def handle_goal_message(user: str, message: str, bundle: RFMBundle) -> dict[str,
             "summary": "Please provide an objective. Example: `/goal reduce churn by 10% in 30 days`.",
             "query_type": "agent_goal",
         }
-    return _start_goal(user, objective)
+    return _start_goal(user, objective, bundle)

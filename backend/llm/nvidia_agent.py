@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 from openai import OpenAI
@@ -32,17 +33,45 @@ def get_nvidia_client() -> OpenAI:
     return _client
 
 
+def _json_candidates(raw: str) -> list[str]:
+    candidates: list[str] = []
+    fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE)
+    candidates.extend([c.strip() for c in fenced if c.strip()])
+    candidates.append(raw.strip())
+
+    text = raw.strip()
+    starts = [i for i, ch in enumerate(text) if ch == "{"]
+    for s in starts:
+        depth = 0
+        for i in range(s, len(text)):
+            ch = text[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    block = text[s : i + 1].strip()
+                    if block:
+                        candidates.append(block)
+                    break
+    return candidates
+
+
 def _extract_json(text: str) -> dict[str, Any]:
-    raw = text.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("Model response did not contain a JSON object.")
-    return json.loads(raw[start : end + 1])
+    raw = text.replace("\ufeff", "").strip()
+    if not raw:
+        raise ValueError("Empty model response.")
+
+    last_err: Exception | None = None
+    for cand in _json_candidates(raw):
+        try:
+            parsed = json.loads(cand)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception as e:
+            last_err = e
+            continue
+    raise ValueError(f"Model response did not contain valid JSON object. Last error: {last_err}")
 
 
 def chat_json(messages: list[dict[str, str]], *, temperature: float = 0.5) -> dict[str, Any]:
@@ -69,4 +98,3 @@ def chat_json(messages: list[dict[str, str]], *, temperature: float = 0.5) -> di
             chunks.append(delta.content)
 
     return _extract_json("".join(chunks))
-

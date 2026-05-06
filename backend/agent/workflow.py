@@ -48,7 +48,6 @@ def _safe_json_llm(
     event_prefix: str,
     system_prompt: str,
     user_prompt: str,
-    fallback: dict[str, Any],
 ) -> dict[str, Any]:
     _log(wf, f"{event_prefix}_request", "Sending prompt to stepfun-ai/step-3.5-flash", "llm")
     try:
@@ -61,9 +60,15 @@ def _safe_json_llm(
         )
         _log(wf, f"{event_prefix}_success", "Received valid JSON from LLM", "llm")
         return out
-    except Exception:
-        _log(wf, f"{event_prefix}_fallback", "LLM failed or JSON parse failed; fallback applied", "llm")
-        return fallback
+    except Exception as e:
+        _log(wf, f"{event_prefix}_error", f"LLM failed or JSON parse failed: {e}", "llm")
+        raise
+
+
+def _need_fields(obj: dict[str, Any], fields: list[str], ctx: str) -> None:
+    missing = [f for f in fields if f not in obj]
+    if missing:
+        raise ValueError(f"{ctx}: missing fields {missing}")
 
 
 def _plan_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
@@ -81,22 +86,13 @@ def _plan_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
         '"plan_rationale": "..."'
         "}"
     )
-    fallback = {
-        "goal_type": "churn_probability",
-        "steps": [
-            "Identify highest-impact entities with predictive scoring.",
-            "Break down likely impact drivers from available profile fields.",
-            "Estimate achievable movement using assumptions.",
-            "Propose prioritized actions with expected impact.",
-        ],
-        "plan_rationale": "Fallback plan used due to model response parsing failure.",
-    }
-    out = _safe_json_llm(wf, "plan", system, user, fallback)
+    out = _safe_json_llm(wf, "plan", system, user)
+    _need_fields(out, ["goal_type", "steps", "plan_rationale"], "plan")
     out["objective"] = wf.objective
     if out.get("goal_type") not in {"churn_probability", "purchase_likelihood", "demand_forecast"}:
-        out["goal_type"] = "churn_probability"
+        raise ValueError("plan: unsupported goal_type")
     if not isinstance(out.get("steps"), list) or not out["steps"]:
-        out["steps"] = fallback["steps"]
+        raise ValueError("plan: steps must be a non-empty list")
     return out
 
 
@@ -114,8 +110,8 @@ def _assumptions_from_llm(wf: GoalWorkflow) -> dict[str, Any]:
         '"notes": "..."'
         "}"
     )
-    fallback = {"horizon_days": 30, "uplift_pct": 12, "reach_pct": 35, "limit": 20, "notes": "Fallback assumptions."}
-    out = _safe_json_llm(wf, "assumptions", system, user, fallback)
+    out = _safe_json_llm(wf, "assumptions", system, user)
+    _need_fields(out, ["horizon_days", "uplift_pct", "reach_pct", "limit", "notes"], "assumptions")
     out["horizon_days"] = int(max(7, min(365, int(out.get("horizon_days", 30)))))
     out["uplift_pct"] = int(max(1, min(100, int(out.get("uplift_pct", 12)))))
     out["reach_pct"] = int(max(1, min(100, int(out.get("reach_pct", 35)))))
@@ -155,16 +151,15 @@ def _queries_from_llm(wf: GoalWorkflow) -> dict[str, str]:
         pred = f"PREDICT churn_probability FOR EACH customer USING orders HORIZON {h} days RETURN score ORDER BY score DESC LIMIT {l}"
         fallback_pred = "PREDICT churn_probability FOR EACH customer USING orders HORIZON 30 days RETURN score ORDER BY score DESC LIMIT 15"
 
-    fallback = {
-        "predictive_query": pred,
-        "fallback_predictive_query": fallback_pred,
-        "factual_query": "MATCH users RETURN user_id, active, age LIMIT 20",
-        "fallback_factual_query": "MATCH users RETURN user_id, active, age LIMIT 10",
-    }
-    out = _safe_json_llm(wf, "queries", system, user, fallback)
-    for k in fallback:
+    out = _safe_json_llm(wf, "queries", system, user)
+    _need_fields(
+        out,
+        ["predictive_query", "fallback_predictive_query", "factual_query", "fallback_factual_query"],
+        "queries",
+    )
+    for k in ["predictive_query", "fallback_predictive_query", "factual_query", "fallback_factual_query"]:
         if not isinstance(out.get(k), str) or not out[k].strip():
-            out[k] = fallback[k]
+            raise ValueError(f"queries: invalid {k}")
     return out
 
 
@@ -196,20 +191,14 @@ def _execution_summary_from_llm(wf: GoalWorkflow, queries: dict[str, str], pred:
         '"supporting_rows": []'
         "}"
     )
-    fallback = {
-        "avg_top_score": 0.0,
-        "estimated_goal_movement_pct": 0.0,
-        "insight": "Fallback summary generated.",
-        "top_candidates": top_pred[:5],
-        "supporting_rows": top_fact[:5],
-    }
-    out = _safe_json_llm(wf, "execution_summary", system, user, fallback)
+    out = _safe_json_llm(wf, "execution_summary", system, user)
+    _need_fields(out, ["avg_top_score", "estimated_goal_movement_pct", "insight", "top_candidates", "supporting_rows"], "execution_summary")
     out["predictive_query"] = queries.get("predictive_query", "")
     out["factual_query"] = queries.get("factual_query", "")
     if not isinstance(out.get("top_candidates"), list):
-        out["top_candidates"] = top_pred[:5]
+        raise ValueError("execution_summary: top_candidates must be list")
     if not isinstance(out.get("supporting_rows"), list):
-        out["supporting_rows"] = top_fact[:5]
+        raise ValueError("execution_summary: supporting_rows must be list")
     return out
 
 
@@ -223,17 +212,11 @@ def _actions_from_llm(wf: GoalWorkflow) -> list[dict[str, Any]]:
         "Create top 3 prioritized actions.\n"
         "Schema: {\"final_actions\": [{\"priority\":1,\"action\":\"...\",\"expected_movement_pct\":1.2}]}"
     )
-    fallback = {
-        "final_actions": [
-            {"priority": 1, "action": "Target top-scored cohort first with personalized outreach.", "expected_movement_pct": 1.5},
-            {"priority": 2, "action": "Apply medium-touch campaign to mid-risk cohort.", "expected_movement_pct": 0.9},
-            {"priority": 3, "action": "Re-rank and monitor weekly for iterative optimization.", "expected_movement_pct": 0.6},
-        ]
-    }
-    out = _safe_json_llm(wf, "actions", system, user, fallback)
-    actions = out.get("final_actions", fallback["final_actions"])
+    out = _safe_json_llm(wf, "actions", system, user)
+    _need_fields(out, ["final_actions"], "actions")
+    actions = out.get("final_actions")
     if not isinstance(actions, list) or not actions:
-        actions = fallback["final_actions"]
+        raise ValueError("actions: final_actions must be non-empty list")
     return actions[:5]
 
 
@@ -265,10 +248,17 @@ def _start_goal(user: str, objective: str) -> dict[str, Any]:
         objective=objective,
     )
     _log(wf, "workflow_start", f"Objective received: {objective}")
-    plan = _plan_from_llm(wf)
-    wf.plan = plan
-    wf.assumptions = _assumptions_from_llm(wf)
-    _log(wf, "workflow_initialized", f"Goal type selected: {wf.plan.get('goal_type')}")
+    try:
+        plan = _plan_from_llm(wf)
+        wf.plan = plan
+        wf.assumptions = _assumptions_from_llm(wf)
+        _log(wf, "workflow_initialized", f"Goal type selected: {wf.plan.get('goal_type')}")
+    except Exception as e:
+        wf.execution_summary = {
+            "status": "needs_user_input",
+            "detail": f"Agent could not initialize plan/assumptions: {e}",
+        }
+        _log(wf, "workflow_init_failed", str(e))
     WORKFLOWS[user] = wf
     return _agent_payload(
         wf,
@@ -357,12 +347,8 @@ def _revise_goal(user: str, workflow_id: str | None, revision: str) -> dict[str,
         '"revision_note": "..."'
         "}"
     )
-    fallback = {
-        "updated_plan": wf.plan,
-        "updated_assumptions": wf.assumptions,
-        "revision_note": revision.strip(),
-    }
-    out = _safe_json_llm(wf, "revise", system, user_prompt, fallback)
+    out = _safe_json_llm(wf, "revise", system, user_prompt)
+    _need_fields(out, ["updated_plan", "updated_assumptions", "revision_note"], "revise")
 
     if isinstance(out.get("updated_plan"), dict):
         wf.plan = {**wf.plan, **out["updated_plan"]}

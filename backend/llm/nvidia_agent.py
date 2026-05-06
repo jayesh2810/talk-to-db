@@ -74,7 +74,22 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise ValueError(f"Model response did not contain valid JSON object. Last error: {last_err}")
 
 
-def chat_json(messages: list[dict[str, str]], *, temperature: float = 0.5) -> dict[str, Any]:
+def _snippet(s: str, n: int = 300) -> str:
+    out = (s or "").replace("\n", "\\n")
+    return out[:n]
+
+
+def _log_debug(tag: str, msg: str) -> None:
+    t = tag or "agent"
+    print(f"[nvidia-agent][{t}] {msg}")
+
+
+def chat_json(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.5,
+    debug_tag: str = "",
+) -> dict[str, Any]:
     """
     Run Step-3.5-Flash with streaming enabled and return parsed JSON payload.
     """
@@ -90,11 +105,54 @@ def chat_json(messages: list[dict[str, str]], *, temperature: float = 0.5) -> di
     )
 
     chunks: list[str] = []
+    reasoning_chunks: list[str] = []
+    chunk_count = 0
+    content_chunk_count = 0
+    reasoning_chunk_count = 0
+
     for chunk in completion:
+        chunk_count += 1
         if not getattr(chunk, "choices", None):
             continue
         delta = chunk.choices[0].delta
         if getattr(delta, "content", None):
+            content_chunk_count += 1
             chunks.append(delta.content)
+        rc = getattr(delta, "reasoning_content", None)
+        if rc:
+            reasoning_chunk_count += 1
+            reasoning_chunks.append(rc)
 
-    return _extract_json("".join(chunks))
+    text = "".join(chunks).strip()
+    reasoning_text = "".join(reasoning_chunks).strip()
+    _log_debug(
+        debug_tag,
+        (
+            f"stream chunks={chunk_count}, content_chunks={content_chunk_count}, "
+            f"reasoning_chunks={reasoning_chunk_count}, content_len={len(text)}, "
+            f"reasoning_len={len(reasoning_text)}"
+        ),
+    )
+    if text:
+        _log_debug(debug_tag, f"stream content snippet={_snippet(text)}")
+    elif reasoning_text:
+        _log_debug(debug_tag, f"stream reasoning snippet={_snippet(reasoning_text)}")
+
+    if not text:
+        _log_debug(debug_tag, "empty streamed content; retrying once with stream=False")
+        non_stream = client.chat.completions.create(
+            model="stepfun-ai/step-3.5-flash",
+            messages=messages,
+            temperature=temperature,
+            top_p=0.9,
+            max_tokens=4096,
+            stream=False,
+        )
+        raw = ""
+        if getattr(non_stream, "choices", None):
+            msg = non_stream.choices[0].message
+            raw = getattr(msg, "content", "") or ""
+        _log_debug(debug_tag, f"non-stream content_len={len(raw)} snippet={_snippet(raw)}")
+        return _extract_json(raw)
+
+    return _extract_json(text)

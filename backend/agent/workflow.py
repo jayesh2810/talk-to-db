@@ -57,6 +57,7 @@ def _safe_json_llm(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
+            debug_tag=f"{wf.workflow_id}:{event_prefix}",
         )
         _log(wf, f"{event_prefix}_success", "Received valid JSON from LLM", "llm")
         return out

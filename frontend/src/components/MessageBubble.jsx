@@ -1,7 +1,7 @@
 import QueryDisplay from './QueryDisplay'
 import ResultTable from './ResultTable'
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, onUserClick }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end mb-6">
@@ -44,6 +44,7 @@ export default function MessageBubble({ message }) {
               columns={message.columns || []}
               queryType={message.query_type}
               totalResults={message.total_results || message.results.length}
+              onCustomerClick={onUserClick}
             />
           </div>
         )}

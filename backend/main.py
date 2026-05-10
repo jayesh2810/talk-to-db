@@ -23,7 +23,8 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-from kumo_rfm.client import init_model, get_schema_info, get_dataframes
+import pandas as pd
+from kumo_rfm.client import init_model, get_schema_info, get_dataframes, predict
 from kumo_rfm.executor import execute
 from llm.claude import generate_pql, summarize_results, get_client
 from pql.parser import parse_pql
@@ -108,6 +109,68 @@ async def chat(req: ChatRequest) -> ChatResponse:
         columns=result["columns"],
         total_results=result["total_results"],
     )
+
+
+# ── User deep-dive endpoint ──────────────────────────────────────────────
+
+@app.get("/api/user/{user_id}")
+async def get_user_profile(user_id: int) -> dict:
+    """
+    Fetch a user profile, their recent orders, and a KumoRFM churn prediction.
+    Powers the CustomerDrawer in the frontend.
+    """
+    dfs = get_dataframes()
+    users_df = dfs.get("users", pd.DataFrame())
+    orders_df = dfs.get("orders", pd.DataFrame())
+    items_df = dfs.get("items", pd.DataFrame())
+
+    user_rows = users_df[users_df["user_id"] == user_id].to_dict(orient="records")
+    if not user_rows:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    user = user_rows[0]
+
+    # Join orders with item names for this user
+    user_orders: list[dict] = []
+    if not orders_df.empty and "user_id" in orders_df.columns:
+        uorders = orders_df[orders_df["user_id"] == user_id].copy()
+        if not items_df.empty and "item_id" in items_df.columns:
+            uorders = uorders.merge(
+                items_df[["item_id", "item_name", "category"]],
+                on="item_id",
+                how="left",
+            )
+        uorders = uorders.sort_values("date", ascending=False).head(15)
+        for _, row in uorders.iterrows():
+            user_orders.append({
+                "order_id": int(row.get("order_id", 0)),
+                "item_id": int(row.get("item_id", 0)),
+                "item_name": str(row.get("item_name", f"Item #{row.get('item_id', '?')}")),
+                "category": str(row.get("category", "")),
+                "date": str(row.get("date", ""))[:10],
+                "price": round(float(row.get("price", 0)), 2),
+            })
+
+    # KumoRFM 90-day churn prediction for this user
+    churn_score = None
+    try:
+        pql = f"PREDICT COUNT(orders.*, 0, 90, days)=0 FOR users.user_id={user_id}"
+        pred_df = predict(pql)
+        if isinstance(pred_df, pd.DataFrame) and len(pred_df) > 0:
+            score_cols = [c for c in pred_df.columns if c != "user_id"]
+            if score_cols:
+                churn_score = round(float(pred_df.iloc[0][score_cols[0]]), 4)
+    except Exception as exc:
+        print(f"[user_profile] Churn prediction failed for user {user_id}: {exc}")
+
+    return {
+        "profile": {
+            "user_id": user_id,
+            "active": bool(user.get("active", True)),
+            "age": int(user["age"]) if pd.notna(user.get("age")) else None,
+        },
+        "churn_score": churn_score,
+        "orders": user_orders,
+    }
 
 
 # ── Schema endpoint ─────────────────────────────────────────────────────

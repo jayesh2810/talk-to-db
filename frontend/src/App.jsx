@@ -1,11 +1,17 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import ChatWindow from './components/ChatWindow'
+import CustomerDrawer from './components/CustomerDrawer'
 import { useChat } from './hooks/useChat'
 
 export default function App() {
   const { messages, isLoading, error, sendMessage, clearHistory } = useChat()
   const [input, setInput] = useState('')
+  const [selectedUserId, setSelectedUserId] = useState(null)
   const inputRef = useRef(null)
+
+  const handleUserClick = useCallback((userId) => {
+    setSelectedUserId(userId)
+  }, [])
 
   const handleSubmit = async (text) => {
     const msg = (text || input).trim()
@@ -57,8 +63,16 @@ export default function App() {
           isLoading={isLoading}
           error={error}
           onSend={handleSubmit}
+          onUserClick={handleUserClick}
         />
       </div>
+
+      {selectedUserId && (
+        <CustomerDrawer
+          userId={selectedUserId}
+          onClose={() => setSelectedUserId(null)}
+        />
+      )}
 
       <div className="flex-shrink-0 border-t border-slate-800 bg-slate-900/50 backdrop-blur-md px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-end gap-3">

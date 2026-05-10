@@ -13,26 +13,6 @@ function ScoreBadge({ score }) {
   )
 }
 
-function PrescriptionBadge({ action, probability }) {
-  const probPct = Math.round((probability || 0) * 100)
-  const isHighProb = probPct >= 50
-  
-  return (
-    <div className="flex flex-col gap-1">
-      <span className={`text-[11px] px-1.5 py-0.5 rounded border font-medium ${
-        isHighProb 
-          ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30' 
-          : 'bg-gray-800/50 text-gray-400 border-gray-700'
-      }`}>
-        {action}
-      </span>
-      <span className="text-[9px] text-gray-500 font-mono">
-        Prob: {probPct}%
-      </span>
-    </div>
-  )
-}
-
 function FactorsList({ factors }) {
   if (!Array.isArray(factors) || factors.length === 0) return <span className="text-gray-600">—</span>
   return (
@@ -77,14 +57,12 @@ function exportToCsv(columns, rows, filename) {
   document.body.removeChild(link)
 }
 
-function CellValue({ col, value, row }) {
+function CellValue({ col, value }) {
   if (value === null || value === undefined || value === '') {
     return <span className="text-gray-600">—</span>
   }
 
   if (col === 'score') return <ScoreBadge score={value} />
-
-  if (col === 'recommended_action') return <PrescriptionBadge action={value} probability={row.success_probability} />
 
   if (col === 'top_factors') return <FactorsList factors={value} />
 
@@ -117,7 +95,7 @@ export default function ResultTable({ results, columns, queryType, totalResults,
     )
   }
 
-  const visibleColumns = columns.filter(c => c !== 'customer_id' && c !== 'order_id' && c !== 'product_id' && c !== 'success_probability')
+  const visibleColumns = columns.filter(c => c !== 'customer_id' && c !== 'order_id' && c !== 'product_id')
   const isCustomerQuery = queryType?.includes('customer') || columns.includes('customer_id')
 
   const handleSort = (col) => {
@@ -200,7 +178,7 @@ export default function ResultTable({ results, columns, queryType, totalResults,
               >
                 {visibleColumns.map(col => (
                   <td key={col} className="px-4 py-3 text-gray-300 max-w-xs">
-                    <CellValue col={col} value={row[col]} row={row} />
+                    <CellValue col={col} value={row[col]} />
                   </td>
                 ))}
                 {isCustomerQuery && (

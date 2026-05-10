@@ -1,10 +1,10 @@
 const QUESTIONS = [
-  'Predict churn for users 1 through 5 in the next 90 days',
-  'How much will user 42 spend in the next 30 days?',
-  'Recommend top 10 items for user 123',
-  'Show me the most expensive items in the catalog',
-  'Predict 30-day demand for item 1',
-  'List all orders over $100',
+  'Which users are most likely to churn in the next 90 days?',
+  'Which users are most likely to place another order in the next 90 days?',
+  'Forecast item demand — show top items by predicted revenue',
+  'Show me active users under age 35',
+  'How many orders have price greater than 50?',
+  'List items in the Trousers category',
 ]
 
 export default function ExampleQuestions({ onSelect }) {

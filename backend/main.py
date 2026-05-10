@@ -1,39 +1,86 @@
 """
 Talk-to-DB — FastAPI backend powered by KumoRFM.
 
-Startup sequence:
-  1. Load .env (ANTHROPIC_API_KEY, KUMO_API_KEY)
-  2. Load e-commerce Parquet (local cache if present, else S3 → cache)
-  3. Init KumoRFM (restores from local model pickle if data unchanged, else materialize)
-  4. Serve REST endpoints
+Startup:
+  1. Load .env (API keys + optional BASIC_AUTH_*)
+  2. Load KumoRFM bundle (S3 parquet cache per quickstart, LocalGraph pickle, model)
+
+Analytics data is only the Kumo online-shopping dataset (users/items/orders parquet).
+HTTP Basic login uses environment variables — no SQLite.
 
 Usage:
   cd backend
   uvicorn main:app --reload
+  uvicorn main:app --reload -- --rebuild-rfm-graph   # rebuild LocalGraph pickle from cached parquet
 """
 
+import os
+import secrets
 import sys
-import traceback
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
-import pandas as pd
-from kumo_rfm.client import init_model, get_schema_info, get_dataframes, predict
-from kumo_rfm.executor import execute
-from llm.claude import generate_pql, summarize_results, get_client
-from pql.parser import parse_pql
-from models.schemas import ChatRequest, ChatResponse
+from llm.claude import generate_pql, get_client, summarize_results
+from models.schemas import (
+    ChatRequest,
+    ChatResponse,
+    GraphStatsResponse,
+    SchemaResponse,
+    SchemaTable,
+    TraversalStep,
+)
+from pql.executor import execute
+from rfm.cache import RFMBundle, load_rfm_bundle
+
+RFM_BUNDLE: RFMBundle | None = None
+
+security = HTTPBasic()
+
+
+def _basic_expected() -> tuple[str, str]:
+    return (
+        os.environ.get("BASIC_AUTH_USER", "1028@admin"),
+        os.environ.get("BASIC_AUTH_PASSWORD", "1028@admin"),
+    )
+
+
+def _basic_auth_ok(username: str, password: str) -> bool:
+    u, p = _basic_expected()
+    return secrets.compare_digest(username, u) and secrets.compare_digest(password, p)
+
+
+async def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    """Verify HTTP Basic credentials from environment (see BASIC_AUTH_* in .env.example)."""
+    if not _basic_auth_ok(credentials.username, credentials.password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+def _init_kumo_rfm() -> None:
+    import kumoai.experimental.rfm as rfm
+
+    if not os.environ.get("KUMO_API_KEY"):
+        raise RuntimeError(
+            "KUMO_API_KEY is not set. Add it to backend/.env (see https://kumorfm.ai/api-keys)."
+        )
+    rfm.init()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Validate API keys early
+    global RFM_BUNDLE
+
     try:
         get_client()
     except RuntimeError as e:
@@ -41,12 +88,22 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
 
     try:
-        init_model()
+        _init_kumo_rfm()
     except RuntimeError as e:
         print(f"\n[ERROR] {e}\n")
         sys.exit(1)
 
+    rebuild_rfm = "--rebuild-rfm-graph" in sys.argv
+    if rebuild_rfm:
+        print("Rebuilding KumoRFM LocalGraph from cached parquet (--rebuild-rfm-graph).")
+
+    print("Loading KumoRFM bundle (S3 parquet cache + LocalGraph pickle)...")
+    RFM_BUNDLE = load_rfm_bundle(force_rebuild_graph=rebuild_rfm)
+    print("KumoRFM ready.")
+
     yield
+
+    RFM_BUNDLE = None
 
 
 app = FastAPI(
@@ -68,130 +125,133 @@ app.add_middleware(
 # ── Chat endpoint ─────────────────────────────────────────────────────
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
-    """
-    NL → PQL → KumoRFM prediction or pandas lookup → Claude summary.
-    """
-    history = [{"role": m.role, "content": m.content} for m in req.history]
+async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> ChatResponse:
+    if RFM_BUNDLE is None:
+        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
 
-    # Step 1: NL → PQL
-    try:
-        pql_query = generate_pql(req.message, history)
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"LLM error: {e}")
+    history = [{"role": m.role, "content": m.content} for m in request.history]
 
-    # Step 2: Parse PQL
     try:
-        plan = parse_pql(pql_query)
+        pql_query = generate_pql(request.message, history)
     except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=400, detail=f"PQL parse error: {e}")
+        raise HTTPException(status_code=502, detail=f"LLM error (PQL generation): {e}")
 
-    # Step 3: Execute
     try:
-        result = execute(pql_query, plan)
+        exec_result = execute(pql_query, RFM_BUNDLE)
     except Exception as e:
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Execution error: {e}")
 
-    # Step 4: Summarize
+    results = exec_result["results"]
+    traversal_steps_raw = exec_result.get("traversal_steps", [])
+
     try:
-        summary = summarize_results(req.message, pql_query, result["results"])
+        summary = summarize_results(
+            question=request.message,
+            pql_query=pql_query,
+            results=results,
+            traversal_steps=traversal_steps_raw,
+        )
     except Exception as e:
-        summary = f"Query executed successfully. {result['total_results']} results returned."
+        raise HTTPException(status_code=502, detail=f"LLM error (summarization): {e}")
+
+    traversal_steps = [TraversalStep(**s) for s in traversal_steps_raw]
 
     return ChatResponse(
         pql_query=pql_query,
-        query_type=result["query_type"],
-        results=result["results"],
+        query_type=exec_result["query_type"],
+        results=results,
+        traversal_steps=traversal_steps,
         summary=summary,
-        columns=result["columns"],
-        total_results=result["total_results"],
+        columns=exec_result["columns"],
+        total_results=exec_result["total_results"],
     )
+
+
+# ── Schema endpoint ─────────────────────────────────────────────────────
+
+@app.get("/api/schema", response_model=SchemaResponse)
+async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
+    if RFM_BUNDLE is None:
+        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+
+    b = RFM_BUNDLE
+    tables = [
+        SchemaTable(name="users", columns=list(b.users.columns), foreign_keys=[]),
+        SchemaTable(name="items", columns=list(b.items.columns), foreign_keys=[]),
+        SchemaTable(
+            name="orders",
+            columns=list(b.orders.columns),
+            foreign_keys=[
+                {"from": "user_id", "to_table": "users", "to_col": "user_id"},
+                {"from": "item_id", "to_table": "items", "to_col": "item_id"},
+            ],
+        ),
+    ]
+    return SchemaResponse(tables=tables)
+
+
+# ── Graph endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/graph/stats", response_model=GraphStatsResponse)
+async def graph_stats(user: str = Depends(get_current_user)) -> GraphStatsResponse:
+    if RFM_BUNDLE is None:
+        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+
+    from rfm.viz import graph_stats as gs
+
+    raw = gs(RFM_BUNDLE)
+    return GraphStatsResponse(
+        node_count=raw["node_count"],
+        edge_count=raw["edge_count"],
+        node_types=raw["node_types"],
+        edge_types=raw["edge_types"],
+    )
+
+
+@app.get("/api/graph/data")
+async def graph_data(limit: int = 200, user: str = Depends(get_current_user)) -> dict:
+    if RFM_BUNDLE is None:
+        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+
+    from rfm.viz import graph_sample
+
+    return graph_sample(RFM_BUNDLE, limit=min(max(limit, 1), 500))
 
 
 # ── User deep-dive endpoint ──────────────────────────────────────────────
 
 @app.get("/api/user/{user_id}")
-async def get_user_profile(user_id: int) -> dict:
+@app.get("/api/customer/{user_id}")
+async def get_user_detail(user_id: str, user: str = Depends(get_current_user)):
     """
     Fetch a user profile, their recent orders, and a KumoRFM churn prediction.
     Powers the CustomerDrawer in the frontend.
+    Accessible via both /api/user/{id} and /api/customer/{id}.
     """
-    dfs = get_dataframes()
-    users_df = dfs.get("users", pd.DataFrame())
-    orders_df = dfs.get("orders", pd.DataFrame())
-    items_df = dfs.get("items", pd.DataFrame())
+    if RFM_BUNDLE is None:
+        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
 
-    user_rows = users_df[users_df["user_id"] == user_id].to_dict(orient="records")
-    if not user_rows:
-        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
-    user = user_rows[0]
+    from rfm.user_profile import build_user_profile
 
-    # Join orders with item names for this user
-    user_orders: list[dict] = []
-    if not orders_df.empty and "user_id" in orders_df.columns:
-        uorders = orders_df[orders_df["user_id"] == user_id].copy()
-        if not items_df.empty and "item_id" in items_df.columns:
-            uorders = uorders.merge(
-                items_df[["item_id", "item_name", "category"]],
-                on="item_id",
-                how="left",
-            )
-        uorders = uorders.sort_values("date", ascending=False).head(15)
-        for _, row in uorders.iterrows():
-            user_orders.append({
-                "order_id": int(row.get("order_id", 0)),
-                "item_id": int(row.get("item_id", 0)),
-                "item_name": str(row.get("item_name", f"Item #{row.get('item_id', '?')}")),
-                "category": str(row.get("category", "")),
-                "date": str(row.get("date", ""))[:10],
-                "price": round(float(row.get("price", 0)), 2),
-            })
-
-    # KumoRFM 90-day churn prediction for this user
-    churn_score = None
     try:
-        pql = f"PREDICT COUNT(orders.*, 0, 90, days)=0 FOR users.user_id={user_id}"
-        pred_df = predict(pql)
-        if isinstance(pred_df, pd.DataFrame) and len(pred_df) > 0:
-            score_cols = [c for c in pred_df.columns if c != "user_id"]
-            if score_cols:
-                churn_score = round(float(pred_df.iloc[0][score_cols[0]]), 4)
-    except Exception as exc:
-        print(f"[user_profile] Churn prediction failed for user {user_id}: {exc}")
-
-    return {
-        "profile": {
-            "user_id": user_id,
-            "active": bool(user.get("active", True)),
-            "age": int(user["age"]) if pd.notna(user.get("age")) else None,
-        },
-        "churn_score": churn_score,
-        "orders": user_orders,
-    }
-
-
-# ── Schema endpoint ─────────────────────────────────────────────────────
-
-@app.get("/api/schema")
-async def schema() -> dict:
-    """Return metadata about the loaded e-commerce tables."""
-    return get_schema_info()
+        return build_user_profile(RFM_BUNDLE, user_id)
+    except ValueError as e:
+        msg = str(e).lower()
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # ── Health ───────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
-async def health() -> dict:
-    """Health check."""
-    try:
-        dfs = get_dataframes()
-        return {
-            "status": "ok",
-            "tables": list(dfs.keys()),
-            "total_rows": sum(len(df) for df in dfs.values()),
-        }
-    except Exception:
-        return {"status": "ok", "tables": [], "total_rows": 0}
+async def health(
+    credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False)),
+) -> dict:
+    """Health check; validates Basic credentials when the client sends them (login probe)."""
+    out: dict = {"status": "ok", "kumo_rfm_ready": RFM_BUNDLE is not None}
+    if credentials is not None:
+        out["authenticated"] = _basic_auth_ok(credentials.username, credentials.password)
+    else:
+        out["authenticated"] = False
+    return out

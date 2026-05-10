@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 
+const API_USER = import.meta.env.VITE_API_USER ?? '1028@admin'
+const API_PASS = import.meta.env.VITE_API_PASS ?? '1028@admin'
+const AUTH_HEADER = 'Basic ' + btoa(`${API_USER}:${API_PASS}`)
+
 function CollapsibleSection({ title, children, defaultOpen = true }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   return (
@@ -18,7 +22,8 @@ function CollapsibleSection({ title, children, defaultOpen = true }) {
   )
 }
 
-function ChurnGauge({ score }) {
+function ChurnGauge({ churn }) {
+  const score = churn?.score ?? null
   if (score === null || score === undefined) return (
     <p className="text-xs text-gray-500 text-center">Prediction unavailable</p>
   )
@@ -46,6 +51,11 @@ function ChurnGauge({ score }) {
         </svg>
       </div>
       <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>{label}</span>
+      {churn?.confidence != null && (
+        <p className="text-[10px] text-gray-500 text-center">
+          Confidence: {Math.round(churn.confidence * 100)}%
+        </p>
+      )}
       <p className="text-[10px] text-gray-500 text-center">
         90-day churn probability via KumoRFM
       </p>
@@ -62,7 +72,7 @@ export default function CustomerDrawer({ userId, onClose }) {
     if (!userId) return
     setLoading(true)
     setError(null)
-    fetch(`/api/user/${userId}`)
+    fetch(`/api/user/${userId}`, { headers: { 'Authorization': AUTH_HEADER } })
       .then(r => { if (!r.ok) throw new Error('Failed to fetch user profile'); return r.json() })
       .then(setData)
       .catch(e => setError(e.message))
@@ -76,6 +86,21 @@ export default function CustomerDrawer({ userId, onClose }) {
   }, [onClose])
 
   if (!userId) return null
+
+  // Flatten nested order items from rfm/user_profile.py response shape:
+  // orders[].items[] → flat list for display
+  const flatOrders = data?.orders?.flatMap(o =>
+    (o.items || []).map(item => ({
+      order_id: o.order_id,
+      date: (o.order_date || '').slice(0, 10),
+      item_name: item.product_name || '—',
+      category: item.category || '',
+      price: item.unit_price ?? o.total_amount ?? 0,
+    }))
+  ) ?? []
+
+  const totalSpent = data?.profile?.lifetime_value
+    ?? flatOrders.reduce((s, o) => s + (o.price || 0), 0)
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -115,15 +140,19 @@ export default function CustomerDrawer({ userId, onClose }) {
                 <div className="grid grid-cols-2 gap-y-4 gap-x-6">
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-gray-500 uppercase font-bold">User ID</span>
-                    <span className="text-sm font-mono text-gray-200">#{data.profile.user_id}</span>
+                    <span className="text-sm font-mono text-gray-200">#{data.profile.id || userId}</span>
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-gray-500 uppercase font-bold">Status</span>
-                    <span className={`text-[11px] font-bold ${data.profile.active ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {data.profile.active ? '● Active' : '● Inactive'}
+                    <span className={`text-[11px] font-bold ${
+                      data.profile.segment === 'active' ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {data.profile.segment === 'active' ? '● Active'
+                        : data.profile.segment === 'inactive' ? '● Inactive'
+                        : `● ${data.profile.segment || 'Unknown'}`}
                     </span>
                   </div>
-                  {data.profile.age && (
+                  {data.profile.age != null && (
                     <div className="flex flex-col gap-1">
                       <span className="text-[10px] text-gray-500 uppercase font-bold">Age</span>
                       <span className="text-sm text-gray-200">{data.profile.age}</span>
@@ -131,12 +160,12 @@ export default function CustomerDrawer({ userId, onClose }) {
                   )}
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-gray-500 uppercase font-bold">Total Orders</span>
-                    <span className="text-sm font-mono text-gray-200">{data.orders.length}</span>
+                    <span className="text-sm font-mono text-gray-200">{flatOrders.length}</span>
                   </div>
                   <div className="flex flex-col gap-1">
                     <span className="text-[10px] text-gray-500 uppercase font-bold">Total Spent</span>
                     <span className="text-sm font-mono text-gray-200">
-                      ${data.orders.reduce((s, o) => s + (o.price || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ${totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -144,24 +173,24 @@ export default function CustomerDrawer({ userId, onClose }) {
 
               {/* Churn Risk */}
               <CollapsibleSection title="Churn Risk (KumoRFM)">
-                <ChurnGauge score={data.churn_score} />
+                <ChurnGauge churn={data.churn} />
               </CollapsibleSection>
 
               {/* Order History */}
-              <CollapsibleSection title={`Order History (${data.orders.length})`}>
-                {data.orders.length === 0 ? (
+              <CollapsibleSection title={`Order History (${flatOrders.length})`}>
+                {flatOrders.length === 0 ? (
                   <p className="text-xs text-gray-500 text-center">No orders found</p>
                 ) : (
                   <div className="space-y-2">
-                    {data.orders.map((o, i) => (
+                    {flatOrders.map((o, i) => (
                       <div key={i} className="border border-gray-800 rounded-lg p-3 bg-gray-800/30">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-mono text-gray-400">#{o.order_id}</span>
                           <span className="text-xs font-mono text-gray-200">${(o.price || 0).toFixed(2)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-300">{o.item_name || `Item #${o.item_id}`}</span>
-                          <span className="text-[10px] text-gray-500">{o.date ? String(o.date).slice(0, 10) : '—'}</span>
+                          <span className="text-xs text-gray-300">{o.item_name}</span>
+                          <span className="text-[10px] text-gray-500">{o.date || '—'}</span>
                         </div>
                         {o.category && (
                           <span className="text-[10px] text-indigo-400 mt-1 inline-block">{o.category}</span>

@@ -6,11 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Backend (run from `backend/`)
 ```bash
-# Install dependencies
 pip install -r requirements.txt
 
-# Start server (downloads data from S3, builds KumoRFM graph on first run)
 uvicorn main:app --reload
+
+# Rebuild pickled LocalGraph from cached parquet (same tables as KumoRFM)
+uvicorn main:app --reload -- --rebuild-rfm-graph
 ```
 
 ### Frontend (run from `frontend/`)
@@ -25,19 +26,16 @@ npm run dev # dev server on :5173
 1. `POST /api/chat` receives `{message, history}`
 2. `llm/claude.py::generate_pql()` → Claude converts NL → PQL string
 3. `pql/parser.py::parse_pql()` → structured plan dict (mode: factual | predictive)
-4. `kumo_rfm/executor.py::execute()` → routes to pandas lookup or KumoRFM prediction
-5. Factual: pandas DataFrame filter/sort/limit on cached e-commerce data
-6. Predictive: `kumo_rfm/client.py::predict()` → KumoRFM foundation model
-7. `llm/claude.py::summarize_results()` → Claude writes plain English summary
-8. Response includes: `pql_query`, `query_type`, `results`, `summary`, `columns`
+4. `pql/executor.py::execute(pql_query, RFM_BUNDLE)` → routes parsed plan to `rfm/` modules
+5. **Factual** (`MATCH`): `rfm/factual.py::run_factual()` — pandas filters on cached **users / items / orders** parquet (aligned with `LocalGraph`)
+6. **Predictive** (`PREDICT`): `rfm/predict.py::run_predictive()` — **KumoRFM** batch inference on the same graph
+7. `llm/claude.py::summarize_results()` → summary text
 
-### KumoRFM integration
-- Data loaded from `s3://kumo-sdk-public/rfm-datasets/online-shopping` (users, items, orders)
-- Graph auto-inferred via `rfm.LocalGraph.from_data()` (PK/FK relationship detection)
-- Model initialized via `rfm.KumoRFM(graph)` — no training required
-- Predictions via `model.predict(pql_query)` — uses the pre-trained relational foundation model
+### Auth & schema
+- **HTTP Basic** credentials come from **`BASIC_AUTH_USER`** / **`BASIC_AUTH_PASSWORD`** in `.env` (defaults: `1028@admin` / `1028@admin`). No SQLite.
+- **`GET /api/schema`**: columns from loaded Parquet tables.
 
-### PQL syntax reference
+## PQL syntax reference
 ```
 # Factual (data lookups)
 MATCH <table>
@@ -46,36 +44,42 @@ RETURN <fields>
 ORDER BY <field> DESC
 LIMIT <n>
 
-# Predictive (KumoRFM PQL)
-PREDICT <target_expression> FOR <table>.<primary_key>=<value>
-PREDICT <target_expression> FOR <table>.<primary_key> IN (<id1>, <id2>, ...)
-
-# Target expressions:
-COUNT(orders.*, 0, 90, days)=0          — churn prediction
-SUM(orders.price, 0, 30, days)          — revenue forecast
-LIST_DISTINCT(orders.item_id, 0, 30, days) RANK TOP 10  — recommendations
-users.age                                — missing value imputation
+# Predictive
+PREDICT <churn_probability|purchase_likelihood|demand_forecast>
+FOR EACH <entity>
+[WHERE ...]
+USING <tables>
+HORIZON <n> days
+RETURN <fields>
+ORDER BY score DESC
+LIMIT <n>
 ```
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `backend/kumo_rfm/client.py` | KumoRFM SDK wrapper — data loading, graph creation, model init |
-| `backend/kumo_rfm/executor.py` | Routes PQL to pandas (factual) or KumoRFM (predictive) |
+| `backend/rfm/cache.py` | Download/cache Kumo Parquet, pickle `LocalGraph`, load `RFMBundle` |
+| `backend/rfm/predict.py` | Predictive plans → Kumo PQL + `model.predict()` |
+| `backend/rfm/factual.py` | Factual `MATCH` on parquet tables |
+| `backend/rfm/user_profile.py` | `GET /api/user/{user_id}` — orders + churn score |
+| `backend/rfm/viz.py` | Stats + sample graph payload for the UI |
 | `backend/pql/parser.py` | PQL string → structured plan dict |
-| `backend/llm/claude.py` | Two Claude API calls: NL→PQL and results→summary |
-| `backend/llm/prompts.py` | System prompts for Claude with KumoRFM PQL syntax |
-| `backend/main.py` | FastAPI app with /api/chat endpoint |
+| `backend/pql/executor.py` | Routes factual vs predictive |
+| `backend/llm/claude.py` | Claude: NL→PQL and results→summary |
 | `frontend/src/hooks/useChat.js` | Chat state + API communication |
-| `frontend/src/components/ExampleQuestions.jsx` | Example KumoRFM queries |
+| `frontend/src/components/CustomerDrawer.jsx` | User deep-dive panel with churn gauge |
+| `frontend/src/components/ResultTable.jsx` | Results table with CSV export |
 
 ## Environment
 
 ```
 # backend/.env
 ANTHROPIC_API_KEY=sk-ant-...
-KUMO_API_KEY=...           # Get free at https://kumorfm.ai
+KUMO_API_KEY=...
+# optional — defaults shown
+# BASIC_AUTH_USER=1028@admin
+# BASIC_AUTH_PASSWORD=1028@admin
 ```
 
-The server fails fast at startup if either API key is missing.
+The server fails fast at startup if **`ANTHROPIC_API_KEY`** or **`KUMO_API_KEY`** is missing.

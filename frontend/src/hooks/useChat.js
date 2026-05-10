@@ -2,6 +2,12 @@ import { useState, useCallback } from 'react'
 
 const API_BASE = '/api'
 
+// HTTP Basic Auth credentials — mirror BASIC_AUTH_USER / BASIC_AUTH_PASSWORD in backend/.env
+// Override via VITE_API_USER and VITE_API_PASS if needed.
+const API_USER = import.meta.env.VITE_API_USER ?? '1028@admin'
+const API_PASS = import.meta.env.VITE_API_PASS ?? '1028@admin'
+const AUTH_HEADER = 'Basic ' + btoa(`${API_USER}:${API_PASS}`)
+
 export function useChat() {
   const [messages, setMessages] = useState([])
   const [isLoading, setIsLoading] = useState(false)
@@ -21,7 +27,10 @@ export function useChat() {
     try {
       const response = await fetch(`${API_BASE}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': AUTH_HEADER,
+        },
         body: JSON.stringify({ message: text, history }),
       })
 

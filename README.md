@@ -108,7 +108,7 @@ uvicorn main:app --reload -- --rebuild-graph
 
 ```bash
 python data/seed.py --reseed
-# This deletes both ecommerce.db and graph.graphml, so the next startup rebuilds both
+# This deletes both f1.db and graph.graphml, so the next startup rebuilds both
 ```
 
 ### 3. Frontend
@@ -229,7 +229,7 @@ uvicorn main:app --reload -- --rebuild-graph
 
 ```bash
 python data/seed.py --reseed
-# This deletes both ecommerce.db and graph.graphml, so the next startup rebuilds both
+# This deletes both f1.db and graph.graphml, so the next startup rebuilds both
 ```
 
 ### 3. Frontend

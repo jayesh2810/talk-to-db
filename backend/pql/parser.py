@@ -1,13 +1,12 @@
 """
-PQL (Predictive Query Language) parser.
+PQL parser for KumoRFM-style queries.
 
 Handles two query modes:
+  - Factual (MATCH/SELECT): data lookup from pandas DataFrames
+  - Predictive (PREDICT): forwarded directly to KumoRFM model.predict()
 
-  MATCH <entity>           — factual lookup, direct graph node filter
-  PREDICT <type>           — predictive, multi-hop traversal + scoring
-
-The parser extracts structured fields from a PQL string and returns a dict
-that executor.py can act on without any further string processing.
+For predictive queries, the raw PQL string is the primary output since
+KumoRFM consumes it directly. The parser extracts metadata for routing.
 """
 
 import re
@@ -18,22 +17,23 @@ class PQLParseError(ValueError):
     """Raised when a PQL string cannot be parsed."""
 
 
-# Normalize plural/variant entity names Claude might generate to graph node_type values
-_ENTITY_MAP = {
-    "customers": "customer",
-    "products":  "product",
-    "orders":    "order",
-    "order_items": "item",
-    "items":     "item",
-    "interactions": "interaction",
-    "campaigns": "campaign",
-    "campaign_touchpoints": "campaign",
+# Map entity names to table names in the dataset
+_TABLE_MAP = {
+    "users": "users",
+    "user": "users",
+    "customers": "users",
+    "customer": "users",
+    "items": "items",
+    "item": "items",
+    "products": "items",
+    "product": "items",
+    "orders": "orders",
+    "order": "orders",
 }
 
 
-def _normalize_entity(name: str) -> str:
-    """Map plural or variant entity names to canonical graph node_type."""
-    return _ENTITY_MAP.get(name.lower(), name.lower())
+def _resolve_table(name: str) -> str:
+    return _TABLE_MAP.get(name.lower(), name.lower())
 
 
 def parse_pql(query: str) -> dict[str, Any]:
@@ -44,41 +44,26 @@ def parse_pql(query: str) -> dict[str, Any]:
       - mode: "factual" | "predictive"
       - raw: the original query string
 
-    Factual MATCH query returns:
-      - entity_type: str
-      - filters: list[dict]
-      - return_fields: list[str]
-      - order_by: str | None
-      - order_dir: "ASC" | "DESC"
-      - limit: int
-
-    Predictive PREDICT query returns:
-      - prediction_type: str
-      - entity_type: str
-      - filters: list[dict]
-      - using_tables: list[str]
-      - horizon_days: int
-      - return_fields: list[str]
-      - limit: int
+    Factual queries also include: table, filters, return_fields, order_by, limit
+    Predictive queries also include: predict_target, entity_table, entity_spec
     """
     query = query.strip()
     upper = query.upper()
 
     if upper.startswith("PREDICT"):
         return _parse_predict(query)
-    elif upper.startswith("MATCH"):
-        return _parse_match(query)
+    elif upper.startswith("MATCH") or upper.startswith("SELECT"):
+        return _parse_factual(query)
     else:
-        # Default to factual if ambiguous
-        return _parse_match(query)
+        return _parse_factual(query)
 
 
-def _parse_match(query: str) -> dict[str, Any]:
-    """Parse a MATCH (factual) PQL query."""
+def _parse_factual(query: str) -> dict[str, Any]:
+    """Parse a factual (MATCH/SELECT) query for pandas execution."""
     result: dict[str, Any] = {
         "mode": "factual",
         "raw": query,
-        "entity_type": "customer",
+        "table": "users",
         "filters": [],
         "return_fields": [],
         "order_by": None,
@@ -86,25 +71,18 @@ def _parse_match(query: str) -> dict[str, Any]:
         "limit": 50,
     }
 
-    # Entity type (first word after MATCH)
-    m = re.search(r"MATCH\s+(\w+)", query, re.IGNORECASE)
+    m = re.search(r"(?:MATCH|SELECT\s+\*\s+FROM|FROM)\s+(\w+)", query, re.IGNORECASE)
     if m:
-        result["entity_type"] = _normalize_entity(m.group(1))
+        result["table"] = _resolve_table(m.group(1))
 
-    # WHERE clause filters
     result["filters"] = _parse_where(query)
-
-    # RETURN fields
     result["return_fields"] = _parse_return(query)
 
-    # ORDER BY
     m = re.search(r"ORDER\s+BY\s+([\w.]+)\s*(DESC|ASC)?", query, re.IGNORECASE)
     if m:
-        field = m.group(1).split(".")[-1]  # strip entity prefix
-        result["order_by"] = field
+        result["order_by"] = m.group(1).split(".")[-1]
         result["order_dir"] = (m.group(2) or "DESC").upper()
 
-    # LIMIT
     m = re.search(r"LIMIT\s+(\d+)", query, re.IGNORECASE)
     if m:
         result["limit"] = int(m.group(1))
@@ -113,81 +91,58 @@ def _parse_match(query: str) -> dict[str, Any]:
 
 
 def _parse_predict(query: str) -> dict[str, Any]:
-    """Parse a PREDICT (predictive) PQL query."""
+    """
+    Parse a KumoRFM-style PREDICT query.
+
+    The raw PQL string is forwarded to model.predict(), so we extract
+    just enough metadata for routing and display.
+    """
     result: dict[str, Any] = {
         "mode": "predictive",
         "raw": query,
-        "prediction_type": "churn_probability",
-        "entity_type": "customer",
-        "filters": [],
-        "using_tables": [],
-        "horizon_days": 90,
-        "return_fields": [],
-        "limit": 20,
+        "predict_target": "",
+        "entity_table": "",
+        "entity_spec": "",
+        "indices": None,
     }
 
-    # Prediction type (first word after PREDICT)
-    m = re.search(r"PREDICT\s+(\w+)", query, re.IGNORECASE)
+    # Extract the full PREDICT target expression
+    m = re.search(r"PREDICT\s+(.+?)\s+FOR\s+", query, re.IGNORECASE)
     if m:
-        result["prediction_type"] = m.group(1).lower()
+        result["predict_target"] = m.group(1).strip()
 
-    # FOR EACH entity type
-    m = re.search(r"FOR\s+EACH\s+([\w.]+)", query, re.IGNORECASE)
+    # Extract entity spec (e.g., "users.user_id=42" or "users.user_id IN (1,2,3)")
+    m = re.search(r"FOR\s+(.+?)(?:\s+WHERE|\s*$)", query, re.IGNORECASE)
     if m:
-        raw_entity = m.group(1).lower()
-        # Handle "product.category" → entity_type = "category"
-        if "." in raw_entity:
-            result["entity_type"] = raw_entity.split(".")[-1]
-        else:
-            result["entity_type"] = _normalize_entity(raw_entity)
+        entity_spec = m.group(1).strip()
+        result["entity_spec"] = entity_spec
 
-    # WHERE clause filters
-    result["filters"] = _parse_where(query)
+        # Extract table name from entity spec
+        table_match = re.match(r"(\w+)\.", entity_spec)
+        if table_match:
+            result["entity_table"] = table_match.group(1)
 
-    # USING tables
-    m = re.search(r"USING\s+([^\n]+?)(?:HORIZON|RETURN|ORDER|LIMIT|$)", query, re.IGNORECASE)
-    if m:
-        tables_str = m.group(1).strip()
-        result["using_tables"] = [t.strip().lower() for t in tables_str.split(",")]
-
-    # HORIZON
-    m = re.search(r"HORIZON\s+(\d+)\s*(days?|months?|years?)?", query, re.IGNORECASE)
-    if m:
-        n = int(m.group(1))
-        unit = (m.group(2) or "days").lower()
-        if unit.startswith("month"):
-            n *= 30
-        elif unit.startswith("year"):
-            n *= 365
-        result["horizon_days"] = n
-
-    # RETURN fields
-    result["return_fields"] = _parse_return(query)
-
-    # LIMIT
-    m = re.search(r"LIMIT\s+(\d+)", query, re.IGNORECASE)
-    if m:
-        result["limit"] = int(m.group(1))
+        # Extract indices if IN (...) syntax is used
+        in_match = re.search(r"IN\s*\(([^)]+)\)", entity_spec, re.IGNORECASE)
+        if in_match:
+            indices_str = in_match.group(1)
+            try:
+                result["indices"] = [
+                    int(x.strip()) if x.strip().isdigit() else x.strip().strip("'\"")
+                    for x in indices_str.split(",")
+                ]
+            except ValueError:
+                pass
 
     return result
 
 
 def _parse_where(query: str) -> list[dict[str, Any]]:
-    """
-    Extract WHERE conditions from a PQL query.
-
-    Supports:
-      field = 'value'
-      field != 'value'
-      field >= value
-      field <= value
-      field > value
-      field < value
-    """
+    """Extract WHERE conditions."""
     filters: list[dict[str, Any]] = []
 
     where_m = re.search(
-        r"WHERE\s+(.+?)(?:USING|RETURN|ORDER|LIMIT|HORIZON|FOR|$)",
+        r"WHERE\s+(.+?)(?:RETURN|ORDER|LIMIT|$)",
         query,
         re.IGNORECASE | re.DOTALL,
     )
@@ -195,21 +150,15 @@ def _parse_where(query: str) -> list[dict[str, Any]]:
         return filters
 
     where_str = where_m.group(1).strip()
-    # Split on AND (case-insensitive)
     clauses = re.split(r"\bAND\b", where_str, flags=re.IGNORECASE)
 
     for clause in clauses:
         clause = clause.strip()
-        # Try >= <= != > < = in order of specificity
         for op in (">=", "<=", "!=", ">", "<", "="):
             parts = clause.split(op, 1)
             if len(parts) == 2:
-                field = parts[0].strip()
-                # Strip entity prefix (e.g. "customer.city" → "city")
-                if "." in field:
-                    field = field.split(".")[-1]
+                field = parts[0].strip().split(".")[-1]
                 value_raw = parts[1].strip().strip("'\"")
-                # Try numeric coercion
                 try:
                     value: Any = float(value_raw) if "." in value_raw else int(value_raw)
                 except ValueError:
@@ -221,13 +170,7 @@ def _parse_where(query: str) -> list[dict[str, Any]]:
 
 
 def _parse_return(query: str) -> list[str]:
-    """
-    Extract the RETURN field list from a PQL query.
-
-    Handles aggregate wrappers like COUNT(field), SUM(field), AVG(field)
-    by unwrapping them to the inner field name, prefixed with the aggregate
-    so executor.py can detect and handle them (e.g. "count:customer_id").
-    """
+    """Extract RETURN field list."""
     m = re.search(
         r"RETURN\s+(.+?)(?:ORDER\s+BY|LIMIT|$)",
         query,
@@ -239,21 +182,7 @@ def _parse_return(query: str) -> list[str]:
     fields_str = m.group(1).strip()
     fields = []
     for f in fields_str.split(","):
-        f = f.strip()
-
-        # Detect aggregate functions: COUNT(...), SUM(...), AVG(...)
-        agg_match = re.match(r"(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(.+?)\s*\)", f, re.IGNORECASE)
-        if agg_match:
-            agg_fn = agg_match.group(1).lower()
-            inner = agg_match.group(2).strip()
-            if "." in inner:
-                inner = inner.split(".")[-1]
-            fields.append(f"{agg_fn}:{inner.lower()}")
-            continue
-
-        if "." in f:
-            f = f.split(".")[-1]  # strip entity prefix
+        f = f.strip().split(".")[-1]
         if f:
             fields.append(f.lower())
-
     return fields

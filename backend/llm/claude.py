@@ -3,7 +3,7 @@ Anthropic Claude API integration.
 
 Two calls per user message:
   1. NL → PQL: generate the query from natural language
-  2. Results → Summary: write plain English from query results + traversal steps
+  2. Results → Summary: write plain English from query results
 """
 
 import os
@@ -19,7 +19,7 @@ from llm.prompts import (
 
 _client: anthropic.Anthropic | None = None
 
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS_PQL = 512
 MAX_TOKENS_SUMMARY = 512
 
@@ -45,18 +45,13 @@ def generate_pql(
     """
     Call Claude to translate a natural language question into PQL.
 
-    Args:
-        question: The user's natural language question.
-        history: Optional prior messages for context (role/content dicts).
-
-    Returns:
-        A PQL query string.
+    Returns a PQL query string (either PREDICT ... FOR or MATCH ...).
     """
     client = get_client()
 
     messages = []
     if history:
-        for msg in history[-6:]:  # keep last 3 turns for context
+        for msg in history[-6:]:
             messages.append({"role": msg["role"], "content": msg["content"]})
 
     messages.append({"role": "user", "content": question})
@@ -75,23 +70,13 @@ def summarize_results(
     question: str,
     pql_query: str,
     results: list[dict[str, Any]],
-    traversal_steps: list[dict[str, Any]],
 ) -> str:
     """
     Call Claude to write a plain English summary of query results.
-
-    Args:
-        question: The original user question.
-        pql_query: The PQL query that was executed.
-        results: The raw result rows.
-        traversal_steps: Graph traversal steps (empty for factual queries).
-
-    Returns:
-        A 3-5 sentence plain English summary.
     """
     client = get_client()
 
-    user_message = build_summarization_message(question, pql_query, results, traversal_steps)
+    user_message = build_summarization_message(question, pql_query, results)
 
     response = client.messages.create(
         model=MODEL,

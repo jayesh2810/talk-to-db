@@ -1,10 +1,10 @@
 const QUESTIONS = [
-  'Which customers are most likely to churn in the next 90 days?',
-  'Show me our top 10 customers by lifetime value',
-  'Which recent orders have the highest fraud risk?',
-  'What products should we recommend to VIP customers?',
-  'How many orders were placed last month?',
-  'Which marketing campaigns are driving the most conversions?',
+  'Predict churn for users 1 through 5 in the next 90 days',
+  'How much will user 42 spend in the next 30 days?',
+  'Recommend top 10 items for user 123',
+  'Show me the most expensive items in the catalog',
+  'Predict 30-day demand for item 1',
+  'List all orders over $100',
 ]
 
 export default function ExampleQuestions({ onSelect }) {
@@ -15,7 +15,7 @@ export default function ExampleQuestions({ onSelect }) {
           Ask a predictive question
         </h2>
         <p className="text-sm text-gray-500">
-          Try one of these examples or type your own
+          Powered by KumoRFM — try one of these or type your own
         </p>
       </div>
 

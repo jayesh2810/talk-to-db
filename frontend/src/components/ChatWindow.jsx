@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import MessageBubble from './MessageBubble'
 import ExampleQuestions from './ExampleQuestions'
 
-export default function ChatWindow({ messages, isLoading, error, onSend, onUserClick }) {
+export default function ChatWindow({ messages, isLoading, error, onSend, onUserClick, onAgentAction }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -19,7 +19,12 @@ export default function ChatWindow({ messages, isLoading, error, onSend, onUserC
         ) : (
           <>
             {messages.map((msg, idx) => (
-              <MessageBubble key={idx} message={msg} onUserClick={onUserClick} />
+              <MessageBubble
+                key={idx}
+                message={msg}
+                onUserClick={onUserClick}
+                onAgentAction={onAgentAction}
+              />
             ))}
 
             {isLoading && (

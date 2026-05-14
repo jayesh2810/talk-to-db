@@ -21,13 +21,20 @@ class TraversalStep(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    pql_query: str
-    query_type: str  # "factual" | "predictive"
-    results: list[dict[str, Any]]
+    pql_query: str = ""
+    query_type: str = "factual"  # "factual" | "predictive" | "agent_goal"
+    results: list[dict[str, Any]] = []
     traversal_steps: list[TraversalStep] = []
-    summary: str
-    columns: list[str]
-    total_results: int
+    summary: str = ""
+    columns: list[str] = []
+    total_results: int = 0
+    mode: str = "standard"  # "standard" | "agent_goal"
+    workflow_id: str | None = None
+    stage: str | None = None
+    pending_approval: str | None = None
+    proposal: dict[str, Any] | None = None
+    execution_summary: dict[str, Any] | None = None
+    agent_logs: list[dict[str, Any]] = []
 
 
 class SchemaTable(BaseModel):

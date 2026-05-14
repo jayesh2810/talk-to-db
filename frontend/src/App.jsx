@@ -21,6 +21,22 @@ export default function App() {
     inputRef.current?.focus()
   }
 
+  const handleAgentAction = async (action, message) => {
+    const workflowId = message?.workflow_id || ''
+    if (action === 'approve') {
+      await sendMessage(`/goal approve ${workflowId}`.trim(), { appendUser: false })
+      return
+    }
+    if (action === 'revise') {
+      const hint = message?.stage === 'draft_plan'
+        ? 'What should be revised in the plan?'
+        : 'What should be revised?'
+      const revision = window.prompt(hint)
+      if (!revision || !revision.trim()) return
+      await sendMessage(`/goal revise ${workflowId} ${revision.trim()}`.trim(), { appendUser: false })
+    }
+  }
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -37,7 +53,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-sm font-bold text-white leading-none tracking-tight">Talk to DB</h1>
-            <p className="text-[11px] text-slate-500 leading-none mt-1 font-medium uppercase tracking-wider">Powered by KumoRFM</p>
+            <p className="text-[11px] text-slate-500 leading-none mt-1 font-medium uppercase tracking-wider">Prediction Intelligence</p>
           </div>
         </div>
 
@@ -52,7 +68,7 @@ export default function App() {
           )}
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-tighter">KumoRFM Online</span>
+            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-tighter">Engine Online</span>
           </div>
         </div>
       </header>
@@ -64,6 +80,7 @@ export default function App() {
           error={error}
           onSend={handleSubmit}
           onUserClick={handleUserClick}
+          onAgentAction={handleAgentAction}
         />
       </div>
 
@@ -82,7 +99,7 @@ export default function App() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about users, items, or orders — or request a prediction..."
+              placeholder="Ask about users, items, or orders - or request a prediction..."
               rows={1}
               disabled={isLoading}
               className="
@@ -123,7 +140,7 @@ export default function App() {
           </button>
         </div>
         <p className="text-center text-[10px] text-slate-600 mt-3 font-mono tracking-tight uppercase">
-          NL <span className="text-slate-700">→</span> PQL <span className="text-slate-700">→</span> KumoRFM <span className="text-slate-700">→</span> Prediction <span className="text-slate-700">→</span> Summary
+          NL <span className="text-slate-700">-&gt;</span> PQL <span className="text-slate-700">-&gt;</span> Prediction <span className="text-slate-700">-&gt;</span> Summary
         </p>
       </div>
     </div>

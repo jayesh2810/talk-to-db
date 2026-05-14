@@ -6,7 +6,6 @@ import ResultTable from './ResultTable'
 function AgentStageCard({ message, onAgentAction }) {
   const stageLabel = {
     draft_plan: 'Plan Draft',
-    assumptions: 'Assumptions',
     final_actions: 'Final Actions',
     completed: 'Completed',
   }[message.stage] || 'Agent Workflow'
@@ -65,16 +64,28 @@ function AgentStageCard({ message, onAgentAction }) {
       const plan = message.proposal.plan
       return (
         <div className="mt-2">
-          {kvTable({ objective: plan.objective, goal_type: plan.goal_type, revision_note: plan.revision_note || '' })}
+          {kvTable({
+            objective: plan.objective,
+            goal_type: plan.goal_type,
+            success_metric: plan.success_metric || '',
+            needs_clarification: plan.needs_clarification || false,
+            plan_rationale: plan.plan_rationale || '',
+            revision_note: plan.revision_note || '',
+          })}
           {Array.isArray(plan.steps) && plan.steps.length > 0 && (
             <ol className="mt-2 list-decimal list-inside text-xs text-slate-200 space-y-1">
               {plan.steps.map((s, i) => <li key={i}>{s}</li>)}
             </ol>
           )}
+          {Array.isArray(plan.tool_steps) && plan.tool_steps.length > 0 && (
+            <>
+              <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Planned Tool Steps</div>
+              {listTable(plan.tool_steps)}
+            </>
+          )}
         </div>
       )
     }
-    if (message.proposal.assumptions) return kvTable(message.proposal.assumptions)
     if (message.proposal.final_actions) return listTable(message.proposal.final_actions)
     return kvTable(message.proposal)
   }
@@ -91,6 +102,12 @@ function AgentStageCard({ message, onAgentAction }) {
     return (
       <div className="mt-2">
         {kvTable(scalar)}
+        {ex.risk_buckets && (
+          <>
+            <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Risk Buckets</div>
+            {kvTable(ex.risk_buckets)}
+          </>
+        )}
         {Array.isArray(top) && top.length > 0 && (
           <>
             <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Top Candidates</div>

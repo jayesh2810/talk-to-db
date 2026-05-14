@@ -21,11 +21,11 @@ Natural language question
   ┌─────────────────────────────────────────┐
   │  Kumo online-shopping dataset           │
   │  Parquet users / items / orders       │
-  │  → LocalGraph / KumoRFM               │
+  │  → LocalGraph / prediction engine     │
   └─────────────────────────────────────────┘
         │
         ├── MATCH → pandas filter/sort on tables
-        └── PREDICT → KumoRFM model.predict(...)
+        └── PREDICT → prediction model
         │
         ▼
   ┌───────────┐
@@ -33,11 +33,11 @@ Natural language question
   └───────────┘
 ```
 
-Relational structure (**users** buy **items** via **orders**) is the graph KumoRFM reasons over. Chat and graph endpoints use only that cached quickstart data; login is HTTP Basic via **`BASIC_AUTH_*`** in `.env` (no database).
+Relational structure (**users** buy **items** via **orders**) is the graph the prediction engine reasons over. Chat and graph endpoints use only that cached quickstart data; login is HTTP Basic via **`BASIC_AUTH_*`** in `.env` (no database).
 
 ## Prescriptive-style responses
 
-Predictive rows may include **`recommended_action`** and **`success_probability`** templates produced by the KumoRFM integration layer (`rfm/predict.py`), framed for analysts in the summarization prompt—not from a separate handcrafted scoring engine.
+Predictive rows may include **`recommended_action`** and **`success_probability`** templates produced by the prediction integration layer (`rfm/predict.py`), framed for analysts in the summarization prompt—not from a separate handcrafted scoring engine.
 
 ## Setup
 
@@ -71,7 +71,7 @@ The backend starts on `http://localhost:8000`.
 
 **Login:** set `BASIC_AUTH_USER` and `BASIC_AUTH_PASSWORD` in `backend/.env` if you do not want the defaults (`1028@admin` / `1028@admin`). No SQLite file is used.
 
-**KumoRFM cache:** Parquet + pickled `LocalGraph` live under `data/kumo_rfm_cache/`. Force rebuild of the pickle:
+**Prediction cache:** Parquet + pickled `LocalGraph` live under `data/kumo_rfm_cache/`. Force rebuild of the pickle:
 
 ```bash
 uvicorn main:app --reload -- --rebuild-rfm-graph
@@ -128,7 +128,7 @@ RETURN score
 ORDER BY score DESC
 LIMIT 20
 ```
-→ **KumoRFM** on online-shopping **`users`** / **`orders`**.
+→ Relational prediction on online-shopping **`users`** / **`orders`**.
 
 **"Forecast demand by item"**
 ```
@@ -144,7 +144,7 @@ LIMIT 15
 
 ## Data sources
 
-All analytics come from the **Kumo RFM quickstart** online-shopping dataset: Parquet files under `backend/data/kumo_rfm_cache/` (same source as [Kumo’s quickstart](https://kumo.ai/docs/quick-start/rfm/)), plus a pickled `LocalGraph` for fast restarts.
+All analytics come from the sample online-shopping dataset: Parquet files under `backend/data/kumo_rfm_cache/`, plus a pickled `LocalGraph` for fast restarts.
 
 Set **`ANTHROPIC_API_KEY`**, **`KUMO_API_KEY`**, and optionally **`BASIC_AUTH_*`**, in `backend/.env`.
 

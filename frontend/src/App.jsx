@@ -28,8 +28,8 @@ function AppContent() {
       return
     }
     if (action === 'revise') {
-      const hint = message?.stage === 'assumptions'
-        ? 'Example: uplift 15 reach 40 45 days'
+      const hint = message?.stage === 'draft_plan'
+        ? 'What should be revised in the plan?'
         : 'What should be revised?'
       const revision = window.prompt(hint)
       if (!revision || !revision.trim()) return

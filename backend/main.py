@@ -1,17 +1,17 @@
 """
-Talk-to-DB — FastAPI backend powered by KumoRFM.
+Talk-to-DB FastAPI backend.
 
 Startup:
   1. Load .env (API keys + optional BASIC_AUTH_*)
-  2. Load KumoRFM bundle (S3 parquet cache per quickstart, LocalGraph pickle, model)
+  2. Load the Kumo relational model bundle (cached parquet, LocalGraph pickle, model)
 
 Analytics data is only the Kumo online-shopping dataset (users/items/orders parquet).
-HTTP Basic login uses environment variables — no SQLite.
+HTTP Basic login uses environment variables; no SQLite.
 
 Usage:
   cd backend
   uvicorn main:app --reload
-  uvicorn main:app --reload -- --rebuild-rfm-graph   # rebuild LocalGraph pickle from cached parquet
+  uvicorn main:app --reload -- --rebuild-rfm-graph   # rebuild LocalGraph pickle
 """
 
 import os
@@ -68,12 +68,12 @@ async def get_current_user(credentials: HTTPBasicCredentials = Depends(security)
     return credentials.username
 
 
-def _init_kumo_rfm() -> None:
+def _init_kumo_model() -> None:
     import kumoai.experimental.rfm as rfm
 
     if not os.environ.get("KUMO_API_KEY"):
         raise RuntimeError(
-            "KUMO_API_KEY is not set. Add it to backend/.env (see https://kumorfm.ai/api-keys)."
+            "KUMO_API_KEY is not set. Add it to backend/.env."
         )
     rfm.init()
 
@@ -89,18 +89,18 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
 
     try:
-        _init_kumo_rfm()
+        _init_kumo_model()
     except RuntimeError as e:
         print(f"\n[ERROR] {e}\n")
         sys.exit(1)
 
     rebuild_rfm = "--rebuild-rfm-graph" in sys.argv
     if rebuild_rfm:
-        print("Rebuilding KumoRFM LocalGraph from cached parquet (--rebuild-rfm-graph).")
+        print("Rebuilding Kumo LocalGraph from cached parquet (--rebuild-rfm-graph).")
 
-    print("Loading KumoRFM bundle (S3 parquet cache + LocalGraph pickle)...")
+    print("Loading Kumo relational model bundle (S3 parquet cache + LocalGraph pickle)...")
     RFM_BUNDLE = load_rfm_bundle(force_rebuild_graph=rebuild_rfm)
-    print("KumoRFM ready.")
+    print("Kumo relational model ready.")
 
     yield
 
@@ -109,7 +109,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Talk-to-DB",
-    description="KumoRFM-powered natural language database interface",
+    description="Natural language interface for relational predictive analytics",
     version="3.0.0",
     lifespan=lifespan,
 )
@@ -128,7 +128,7 @@ app.add_middleware(
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> ChatResponse:
     if RFM_BUNDLE is None:
-        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+        raise HTTPException(status_code=503, detail="Kumo relational model bundle not initialized")
 
     goal_response = handle_goal_message(user, request.message, RFM_BUNDLE)
     if goal_response is not None:
@@ -188,7 +188,7 @@ async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> C
 @app.get("/api/schema", response_model=SchemaResponse)
 async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
     if RFM_BUNDLE is None:
-        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+        raise HTTPException(status_code=503, detail="Kumo relational model bundle not initialized")
 
     b = RFM_BUNDLE
     tables = [
@@ -211,7 +211,7 @@ async def get_schema(user: str = Depends(get_current_user)) -> SchemaResponse:
 @app.get("/api/graph/stats", response_model=GraphStatsResponse)
 async def graph_stats(user: str = Depends(get_current_user)) -> GraphStatsResponse:
     if RFM_BUNDLE is None:
-        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+        raise HTTPException(status_code=503, detail="Kumo relational model bundle not initialized")
 
     from rfm.viz import graph_stats as gs
 
@@ -227,7 +227,7 @@ async def graph_stats(user: str = Depends(get_current_user)) -> GraphStatsRespon
 @app.get("/api/graph/data")
 async def graph_data(limit: int = 200, user: str = Depends(get_current_user)) -> dict:
     if RFM_BUNDLE is None:
-        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+        raise HTTPException(status_code=503, detail="Kumo relational model bundle not initialized")
 
     from rfm.viz import graph_sample
 
@@ -240,12 +240,12 @@ async def graph_data(limit: int = 200, user: str = Depends(get_current_user)) ->
 @app.get("/api/customer/{user_id}")
 async def get_user_detail(user_id: str, user: str = Depends(get_current_user)):
     """
-    Fetch a user profile, their recent orders, and a KumoRFM churn prediction.
+    Fetch a user profile, recent orders, and a churn prediction.
     Powers the CustomerDrawer in the frontend.
     Accessible via both /api/user/{id} and /api/customer/{id}.
     """
     if RFM_BUNDLE is None:
-        raise HTTPException(status_code=503, detail="KumoRFM bundle not initialized")
+        raise HTTPException(status_code=503, detail="Kumo relational model bundle not initialized")
 
     from rfm.user_profile import build_user_profile
 
@@ -265,7 +265,7 @@ async def health(
     credentials: HTTPBasicCredentials | None = Depends(HTTPBasic(auto_error=False)),
 ) -> dict:
     """Health check; validates Basic credentials when the client sends them (login probe)."""
-    out: dict = {"status": "ok", "kumo_rfm_ready": RFM_BUNDLE is not None}
+    out: dict = {"status": "ok", "model_ready": RFM_BUNDLE is not None}
     if credentials is not None:
         out["authenticated"] = _basic_auth_ok(credentials.username, credentials.password)
     else:

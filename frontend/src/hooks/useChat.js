@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 
 const API_BASE = '/api'
 
-// HTTP Basic Auth credentials — mirror BASIC_AUTH_USER / BASIC_AUTH_PASSWORD in backend/.env
+// HTTP Basic Auth credentials - mirror BASIC_AUTH_USER / BASIC_AUTH_PASSWORD in backend/.env
 // Override via VITE_API_USER and VITE_API_PASS if needed.
 const API_USER = import.meta.env.VITE_API_USER ?? '1028@admin'
 const API_PASS = import.meta.env.VITE_API_PASS ?? '1028@admin'

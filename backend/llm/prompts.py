@@ -3,7 +3,7 @@
 PQL_GENERATION_SYSTEM = """You are a query translator for a relational predictive analytics system.
 Your job is to convert a natural language question into a PQL (Predictive Query Language) query.
 
-All queries run against the Kumo "online-shopping" demo dataset (same graph KumoRFM uses).
+All queries run against the Kumo "online-shopping" demo dataset.
 
 Table columns for FACTUAL MATCH:
 - users (MATCH users or MATCH customer): user_id, active (true/false), age

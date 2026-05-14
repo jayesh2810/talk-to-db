@@ -166,7 +166,7 @@ def _goal_context(bundle: RFMBundle, wf: GoalWorkflow) -> dict[str, Any]:
         },
         "available_tools": {
             "schema_inspect": "sanitized schema/aggregates",
-            "predict_execute": "run one approved PREDICT query via KumoRFM",
+            "predict_execute": "run one approved PREDICT query via the Kumo relational model",
             "match_execute": "run one approved MATCH query",
             "result_summarize": "aggregate executed results",
         },
@@ -251,8 +251,8 @@ def _normalize_plan(raw: dict[str, Any], objective: str) -> dict[str, Any]:
 
 def _plan_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, Any]:
     system = (
-        "You are a fast KumoRFM goal-planning agent. Return STRICT JSON only. "
-        "You are NOT building or training an ML model. KumoRFM is already the model. "
+        "You are a fast Kumo goal-planning agent. Return STRICT JSON only. "
+        "You are NOT building or training an ML model. The Kumo relational model is already available. "
         "Do not propose feature engineering, model training, cross-validation, or custom ML algorithms. "
         "Use only the provided sanitized schema, aggregates, and available tools. "
         "If the goal misses a required value, set needs_clarification=true and ask concise clarification questions. "
@@ -359,7 +359,7 @@ def _run_plan_tools(wf: GoalWorkflow, bundle: RFMBundle) -> dict[str, Any]:
 
 def _actions_from_llm(wf: GoalWorkflow) -> list[dict[str, Any]]:
     system = (
-        "Return STRICT JSON only. You are a KumoRFM business action agent. "
+        "Return STRICT JSON only. You are a Kumo business action agent. "
         "Recommend concise actions from the already-executed, privacy-safe summary. "
         "Do not suggest training a model or engineering features. Keep strings short."
     )

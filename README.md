@@ -19,7 +19,7 @@ PQL Parser
 Results + summary + optional goal-agent workflow
 ```
 
-The app uses the sample online-shopping relational dataset: `users`, `items`, and `orders`. Cached Parquet files and the pickled `LocalGraph` live under `backend/data/kumo_rfm_cache/`.
+The app uses the sample online-shopping relational dataset: `users`, `items`, and `orders`. Cached Parquet files and the pickled `LocalGraph` live under `backend/data/`.
 
 ## Goal Agent
 

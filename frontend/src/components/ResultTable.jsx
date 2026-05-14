@@ -14,7 +14,7 @@ function ScoreBadge({ score }) {
 }
 
 function FactorsList({ factors }) {
-  if (!Array.isArray(factors) || factors.length === 0) return <span className="text-gray-600">—</span>
+  if (!Array.isArray(factors) || factors.length === 0) return <span className="text-gray-600">-</span>
   return (
     <div className="flex flex-wrap gap-1">
       {factors.map((f, i) => (
@@ -59,7 +59,7 @@ function exportToCsv(columns, rows, filename) {
 
 function CellValue({ col, value }) {
   if (value === null || value === undefined || value === '') {
-    return <span className="text-gray-600">—</span>
+    return <span className="text-gray-600">-</span>
   }
 
   if (col === 'score') return <ScoreBadge score={value} />
@@ -128,7 +128,7 @@ export default function ResultTable({ results, columns, queryType, totalResults,
           </span>
           <button 
             onClick={() => {
-              const filename = `kumorfm-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
+              const filename = `talk-to-db-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
               exportToCsv(columns, rows, filename)
             }}
             className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors flex items-center gap-1"

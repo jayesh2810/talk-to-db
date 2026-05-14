@@ -57,7 +57,7 @@ function ChurnGauge({ churn }) {
         </p>
       )}
       <p className="text-[10px] text-gray-500 text-center">
-        90-day churn probability via KumoRFM
+        90-day churn probability from the relational prediction engine
       </p>
     </div>
   )
@@ -88,12 +88,12 @@ export default function CustomerDrawer({ userId, onClose }) {
   if (!userId) return null
 
   // Flatten nested order items from rfm/user_profile.py response shape:
-  // orders[].items[] → flat list for display
+  // orders[].items[] -> flat list for display
   const flatOrders = data?.orders?.flatMap(o =>
     (o.items || []).map(item => ({
       order_id: o.order_id,
       date: (o.order_date || '').slice(0, 10),
-      item_name: item.product_name || '—',
+      item_name: item.product_name || '-',
       category: item.category || '',
       price: item.unit_price ?? o.total_amount ?? 0,
     }))
@@ -127,7 +127,7 @@ export default function CustomerDrawer({ userId, onClose }) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
               </svg>
-              <span className="text-sm">Loading profile…</span>
+              <span className="text-sm">Loading profile...</span>
             </div>
           ) : error ? (
             <div className="h-full flex flex-col items-center justify-center text-red-400 text-center gap-2">
@@ -147,9 +147,9 @@ export default function CustomerDrawer({ userId, onClose }) {
                     <span className={`text-[11px] font-bold ${
                       data.profile.segment === 'active' ? 'text-emerald-400' : 'text-red-400'
                     }`}>
-                      {data.profile.segment === 'active' ? '● Active'
-                        : data.profile.segment === 'inactive' ? '● Inactive'
-                        : `● ${data.profile.segment || 'Unknown'}`}
+                      {data.profile.segment === 'active' ? 'Active'
+                        : data.profile.segment === 'inactive' ? 'Inactive'
+                        : `${data.profile.segment || 'Unknown'}`}
                     </span>
                   </div>
                   {data.profile.age != null && (
@@ -172,7 +172,7 @@ export default function CustomerDrawer({ userId, onClose }) {
               </CollapsibleSection>
 
               {/* Churn Risk */}
-              <CollapsibleSection title="Churn Risk (KumoRFM)">
+              <CollapsibleSection title="Churn Risk">
                 <ChurnGauge churn={data.churn} />
               </CollapsibleSection>
 
@@ -190,7 +190,7 @@ export default function CustomerDrawer({ userId, onClose }) {
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-gray-300">{o.item_name}</span>
-                          <span className="text-[10px] text-gray-500">{o.date || '—'}</span>
+                          <span className="text-[10px] text-gray-500">{o.date || '-'}</span>
                         </div>
                         {o.category && (
                           <span className="text-[10px] text-indigo-400 mt-1 inline-block">{o.category}</span>

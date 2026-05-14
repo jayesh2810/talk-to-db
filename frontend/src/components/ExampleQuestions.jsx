@@ -1,7 +1,7 @@
 const QUESTIONS = [
   'Which users are most likely to churn in the next 90 days?',
   'Which users are most likely to place another order in the next 90 days?',
-  'Forecast item demand — show top items by predicted revenue',
+  'Forecast item demand - show top items by predicted revenue',
   'Show me active users under age 35',
   'How many orders have price greater than 50?',
   'List items in the Trousers category',
@@ -15,7 +15,7 @@ export default function ExampleQuestions({ onSelect }) {
           Ask a predictive question
         </h2>
         <p className="text-sm text-gray-500">
-          Powered by KumoRFM — try one of these or type your own
+          Powered by the relational prediction engine - try one of these or type your own
         </p>
       </div>
 

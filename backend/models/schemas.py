@@ -52,3 +52,9 @@ class GraphStatsResponse(BaseModel):
     edge_count: int
     node_types: dict[str, int]
     edge_types: dict[str, int]
+
+
+class WebhookRequest(BaseModel):
+    webhook_url: str
+    payload: dict[str, Any]
+

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { exportToCsv, sendToWebhook } from '../utils/exportUtils'
 
 function ScoreBadge({ score }) {
   const pct = Math.round(score * 100)
@@ -26,38 +27,99 @@ function FactorsList({ factors }) {
   )
 }
 
-function exportToCsv(columns, rows, filename) {
-  const filteredCols = columns.filter(c => !c.startsWith('_'))
-  const headers = filteredCols.join(',')
-  
-  const csvRows = rows.map(row => {
-    return filteredCols.map(col => {
-      let val = row[col]
-      if (col === 'top_factors' && Array.isArray(val)) {
-        val = val.map(f => `${f.factor}(${f.contribution})`).join(', ')
-      }
-      
-      let strVal = val === null || val === undefined ? '' : String(val)
-      if (strVal.includes(',') || strVal.includes('\n') || strVal.includes('"')) {
-        strVal = `"${strVal.replace(/"/g, '""')}"`
-      }
-      return strVal
-    }).join(',')
-  })
+function ExportModal({ isOpen, onClose, columns, rows, queryType }) {
+  const [webhookUrl, setWebhookUrl] = useState('')
+  const [isSending, setIsSending] = useState(false)
 
-  const csvContent = [headers, ...csvRows].join('\n')
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.setAttribute('href', url)
-  link.setAttribute('download', filename)
-  link.style.visibility = 'hidden'
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
+  if (!isOpen) return null
+
+  const handleCsvExport = (type) => {
+    const filename = type === 'standard' 
+      ? `talk-to-db-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
+      : `campaign-export-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
+    
+    // For campaign export, we could filter columns to only essential ones (email, score, etc.)
+    // but for MVP we'll use the same function.
+    exportToCsv(columns, rows, filename)
+    onClose()
+  }
+
+  const handleWebhookSend = async () => {
+    if (!webhookUrl) return
+    setIsSending(true)
+    try {
+      await sendToWebhook(webhookUrl, {
+        query_type: queryType,
+        results: rows,
+        timestamp: new Date().toISOString()
+      })
+      alert('Campaign sent to webhook successfully!')
+      onClose()
+    } catch (e) {
+      alert(`Error: ${e.message}`)
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+          <h3 className="text-sm font-bold text-gray-200">Export Campaign</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-white">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Download CSV</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => handleCsvExport('standard')}
+                className="text-xs p-3 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 hover:border-gray-600 transition-all text-left"
+              >
+                <div className="font-bold mb-1">Standard</div>
+                <div className="text-gray-500">Full query results</div>
+              </button>
+              <button 
+                onClick={() => handleCsvExport('campaign')}
+                className="text-xs p-3 rounded-lg border border-gray-700 text-gray-300 hover:bg-gray-800 hover:border-gray-600 transition-all text-left"
+              >
+                <div className="font-bold mb-1">Campaign</div>
+                <div className="text-gray-500">Optimized for CRM</div>
+              </button>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Automate via Webhook</p>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="https://hooks.zapier.com/..." 
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              <button 
+                onClick={handleWebhookSend}
+                disabled={isSending || !webhookUrl}
+                className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-500 disabled:opacity-50 transition-colors"
+              >
+                {isSending ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function CellValue({ col, value }) {
+
   if (value === null || value === undefined || value === '') {
     return <span className="text-gray-600">-</span>
   }
@@ -86,6 +148,7 @@ function CellValue({ col, value }) {
 export default function ResultTable({ results, columns, queryType, totalResults, onCustomerClick }) {
   const [sortCol, setSortCol] = useState(null)
   const [sortDir, setSortDir] = useState('desc')
+  const [isExportOpen, setIsExportOpen] = useState(false)
 
   if (!results || results.length === 0) {
     return (
@@ -126,22 +189,27 @@ export default function ResultTable({ results, columns, queryType, totalResults,
           <span className="text-[11px] text-gray-500 font-medium">
             Showing {rows.length} of {totalResults}
           </span>
-          <button 
-            onClick={() => {
-              const filename = `talk-to-db-${queryType}-${new Date().toISOString().split('T')[0]}.csv`
-              exportToCsv(columns, rows, filename)
-            }}
-            className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Export CSV
-          </button>
-        </div>
-      </div>
+           <button 
+             onClick={() => setIsExportOpen(true)}
+             className="text-xs px-2 py-1 rounded border border-gray-600 text-gray-400 hover:text-white hover:border-gray-400 transition-colors flex items-center gap-1"
+           >
+             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+             </svg>
+             Export Campaign
+           </button>
+         </div>
+       </div>
+       <ExportModal 
+         isOpen={isExportOpen} 
+         onClose={() => setIsExportOpen(false)} 
+         columns={columns} 
+         rows={rows} 
+         queryType={queryType} 
+       />
 
-      <div className="overflow-x-auto">
+       <div className="overflow-x-auto">
+
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-700/50 bg-gray-900/50">

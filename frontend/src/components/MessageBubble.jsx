@@ -1,5 +1,6 @@
 import QueryDisplay from './QueryDisplay'
 import ResultTable from './ResultTable'
+import { exportToCsv, sendToWebhook } from '../utils/exportUtils'
 
 function AgentStageCard({ message, onAgentAction }) {
   const stageLabel = {
@@ -56,6 +57,62 @@ function AgentStageCard({ message, onAgentAction }) {
     )
   }
 
+  const FinalActionsTable = ({ actions, candidates }) => {
+    if (!Array.isArray(actions) || actions.length === 0) return null
+    const cols = Object.keys(actions[0] || {})
+    
+    const handleExport = async () => {
+      if (!candidates || candidates.length === 0) {
+        alert('No candidates available for export.')
+        return
+      }
+      
+      const filename = `goal-campaign-${new Date().toISOString().split('T')[0]}.csv`
+      exportToCsv(Object.keys(candidates[0]), candidates, filename)
+    }
+
+    return (
+      <div className="mt-2 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recommended Actions</div>
+          <button 
+            onClick={handleExport}
+            className="text-[10px] px-2 py-1 rounded border border-indigo-500/40 text-indigo-300 hover:bg-indigo-500/10 transition-colors flex items-center gap-1"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Export Candidates CSV
+          </button>
+        </div>
+        <div className="overflow-x-auto border border-slate-700 rounded-lg">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-900/70">
+              <tr className="border-b border-slate-700/60">
+                {cols.map((c) => (
+                  <th key={c} className="px-3 py-2 text-left text-slate-400 font-semibold uppercase tracking-wide whitespace-nowrap">
+                    {labelize(c)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {actions.map((row, i) => (
+                <tr key={i} className="border-b border-slate-700/60 last:border-b-0">
+                  {cols.map((c) => (
+                    <td key={c} className="px-3 py-2 text-slate-200 whitespace-nowrap">
+                      {typeof row[c] === 'number' ? row[c].toLocaleString() : String(row[c] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
   const renderProposal = () => {
     if (!message.proposal) return null
     if (message.proposal.plan) {
@@ -84,7 +141,7 @@ function AgentStageCard({ message, onAgentAction }) {
         </div>
       )
     }
-    if (message.proposal.final_actions) return listTable(message.proposal.final_actions)
+    if (message.proposal.final_actions) return <FinalActionsTable actions={message.proposal.final_actions} candidates={message.execution_summary?.top_candidates} />
     return kvTable(message.proposal)
   }
 

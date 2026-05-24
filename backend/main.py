@@ -21,9 +21,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import httpx
 
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
@@ -36,6 +37,7 @@ from models.schemas import (
     SchemaResponse,
     SchemaTable,
     TraversalStep,
+    WebhookRequest,
 )
 from pql.executor import execute
 from rfm.cache import RFMBundle, load_rfm_bundle
@@ -259,6 +261,20 @@ async def get_user_detail(user_id: str, user: str = Depends(get_current_user)):
 
 
 # ── Health ───────────────────────────────────────────────────────────────
+
+@app.post("/api/webhook/send", response_model=dict)
+async def send_webhook(request: WebhookRequest, user: str = Depends(get_current_user)):
+    """Proxy a payload to an external webhook URL."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(request.webhook_url, json=request.payload, timeout=10.0)
+            response.raise_for_status()
+            return {"status": "success", "response": response.text}
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(status_code=e.response.status_code, detail=f"Webhook returned error: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Webhook failed: {e}")
+
 
 @app.get("/api/health")
 async def health(

@@ -46,8 +46,13 @@ def get_client() -> anthropic.Anthropic:
 def generate_pql(
     question: str,
     history: list[dict[str, str]] | None = None,
+    system_prompt: str | None = None,
 ) -> str:
-    """Call Claude to translate a natural language question into PQL."""
+    """Call Claude to translate a natural language question into PQL.
+
+    ``system_prompt`` lets the caller pass a schema-aware prompt built from
+    the live bundle; if omitted, the static fallback is used.
+    """
     client = get_client()
 
     messages = []
@@ -60,7 +65,7 @@ def generate_pql(
     response = client.messages.create(
         model=MODEL,
         max_tokens=MAX_TOKENS_PQL,
-        system=PQL_GENERATION_SYSTEM,
+        system=system_prompt or PQL_GENERATION_SYSTEM,
         messages=messages,
     )
 

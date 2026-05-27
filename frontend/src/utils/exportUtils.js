@@ -1,8 +1,4 @@
-// Mirror the credentials used by useChat.js / CustomerDrawer.jsx so the webhook
-// proxy call passes through the backend's HTTP Basic gate.
-const API_USER = import.meta.env.VITE_API_USER ?? '1028@admin'
-const API_PASS = import.meta.env.VITE_API_PASS ?? '1028@admin'
-const AUTH_HEADER = 'Basic ' + btoa(`${API_USER}:${API_PASS}`)
+import { AUTH_HEADER } from './auth'
 
 export function exportToCsv(columns, rows, filename) {
   const filteredCols = columns.filter(c => !c.startsWith('_'))

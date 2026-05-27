@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { exportToCsv, sendToWebhook } from '../utils/exportUtils'
 
 function ScoreBadge({ score }) {
-  const pct = Math.round(score * 100)
+  const num = Number(score)
+  if (!Number.isFinite(num)) return <span className="text-gray-600">-</span>
+  const pct = Math.round(num * 100)
   let color = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
   if (pct >= 70) color = 'bg-red-500/10 text-red-400 border-red-500/30'
   else if (pct >= 40) color = 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
@@ -129,7 +131,9 @@ function CellValue({ col, value }) {
   if (col === 'top_factors') return <FactorsList factors={value} />
 
   if (col === 'confidence') {
-    const pct = Math.round(value * 100)
+    const num = Number(value)
+    if (!Number.isFinite(num)) return <span className="text-gray-600">-</span>
+    const pct = Math.round(num * 100)
     return <span className="text-gray-400 font-mono text-xs">{pct}%</span>
   }
 

@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const API_USER = import.meta.env.VITE_API_USER ?? '1028@admin'
-const API_PASS = import.meta.env.VITE_API_PASS ?? '1028@admin'
-const AUTH_HEADER = 'Basic ' + btoa(`${API_USER}:${API_PASS}`)
+import { AUTH_HEADER } from '../utils/auth'
 
 function CollapsibleSection({ title, children, defaultOpen = true }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
@@ -23,8 +20,8 @@ function CollapsibleSection({ title, children, defaultOpen = true }) {
 }
 
 function ChurnGauge({ churn }) {
-  const score = churn?.score ?? null
-  if (score === null || score === undefined) return (
+  const score = Number(churn?.score)
+  if (!Number.isFinite(score)) return (
     <p className="text-xs text-gray-500 text-center">Prediction unavailable</p>
   )
   const pct = Math.round(score * 100)
@@ -51,9 +48,9 @@ function ChurnGauge({ churn }) {
         </svg>
       </div>
       <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>{label}</span>
-      {churn?.confidence != null && (
+      {Number.isFinite(Number(churn?.confidence)) && (
         <p className="text-[10px] text-gray-500 text-center">
-          Confidence: {Math.round(churn.confidence * 100)}%
+          Confidence: {Math.round(Number(churn.confidence) * 100)}%
         </p>
       )}
       <p className="text-[10px] text-gray-500 text-center">

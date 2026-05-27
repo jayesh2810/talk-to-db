@@ -12,7 +12,7 @@ export default function QueryDisplay({ pqlQuery, queryType }) {
     <div className="rounded-lg border border-gray-700 overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-gray-800 hover:bg-gray-750 transition-colors text-left"
+        className="w-full flex items-center justify-between px-3 py-2 bg-gray-800 hover:bg-gray-700 transition-colors text-left"
       >
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 font-medium">Query generated</span>

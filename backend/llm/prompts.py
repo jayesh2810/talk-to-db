@@ -1,14 +1,19 @@
 """System prompts and message templates for Claude API calls."""
+from __future__ import annotations
 
-PQL_GENERATION_SYSTEM = """You are a query translator for a relational predictive analytics system.
+from typing import Any
+
+_PQL_GENERATION_TEMPLATE = """You are a query translator for a relational predictive analytics system.
 Your job is to convert a natural language question into a PQL (Predictive Query Language) query.
 
 All queries run against the Kumo "online-shopping" demo dataset.
 
-Table columns for FACTUAL MATCH:
-- users (MATCH users or MATCH customer): user_id, active (true/false), age
-- items (MATCH items or MATCH product): item_id, item_name, category, color, descriptions
-- orders (MATCH orders): order_id, user_id, item_id, date, sales_channel_id, price
+Table columns for FACTUAL MATCH (live from the loaded dataset):
+- users (MATCH users or MATCH customer): {users_cols}
+- items (MATCH items or MATCH product): {items_cols}
+- orders (MATCH orders): {orders_cols}
+
+Only reference columns from the lists above. Do not invent columns.
 
 Aliases in WHERE/RETURN: customer_id means user_id; product_id means item_id.
 
@@ -51,6 +56,29 @@ Rules:
 - For purchase likelihood: use PREDICT purchase_likelihood FOR EACH customer USING orders, items
 - Fraud prediction is not supported on this dataset — suggest purchase_likelihood or churn_probability instead.
 - For demand: use PREDICT demand_forecast FOR EACH product USING orders, items"""
+
+
+# Documented / fallback schema. Used when there is no live bundle (e.g. unit
+# tests, tooling). At runtime the chat endpoint calls build_pql_system(bundle)
+# so the prompt always reflects the actual loaded parquet columns.
+_FALLBACK_USERS_COLS = "user_id, active, age"
+_FALLBACK_ITEMS_COLS = "item_id, item_name, category"
+_FALLBACK_ORDERS_COLS = "order_id, user_id, item_id, date, price"
+
+PQL_GENERATION_SYSTEM = _PQL_GENERATION_TEMPLATE.format(
+    users_cols=_FALLBACK_USERS_COLS,
+    items_cols=_FALLBACK_ITEMS_COLS,
+    orders_cols=_FALLBACK_ORDERS_COLS,
+)
+
+
+def build_pql_system(bundle: Any) -> str:
+    """Build the NL->PQL system prompt with the dataset's actual columns."""
+    return _PQL_GENERATION_TEMPLATE.format(
+        users_cols=", ".join(str(c) for c in bundle.users.columns),
+        items_cols=", ".join(str(c) for c in bundle.items.columns),
+        orders_cols=", ".join(str(c) for c in bundle.orders.columns),
+    )
 
 
 SUMMARIZATION_SYSTEM = """You are a data analyst assistant. You will receive:

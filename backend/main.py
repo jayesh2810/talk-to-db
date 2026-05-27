@@ -32,6 +32,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from agent.workflow import handle_goal_message
 from llm.claude import generate_pql, get_client, summarize_results
+from llm.prompts import build_pql_system
 from models.schemas import (
     ChatRequest,
     ChatResponse,
@@ -151,7 +152,11 @@ async def chat(request: ChatRequest, user: str = Depends(get_current_user)) -> C
     history = [{"role": m.role, "content": m.content} for m in request.history]
 
     try:
-        pql_query = generate_pql(request.message, history)
+        pql_query = generate_pql(
+            request.message,
+            history,
+            system_prompt=build_pql_system(RFM_BUNDLE),
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM error (PQL generation): {e}")
 

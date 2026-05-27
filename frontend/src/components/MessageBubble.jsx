@@ -7,7 +7,12 @@ function AgentStageCard({ message, onAgentAction }) {
     draft_plan: 'Plan Draft',
     final_actions: 'Final Actions',
     completed: 'Completed',
+    awaiting_clarification: 'Clarification Needed',
+    failed: 'Planning Failed',
   }[message.stage] || 'Agent Workflow'
+
+  const isFailed = message.stage === 'failed'
+  const isClarification = message.stage === 'awaiting_clarification'
 
   const labelize = (s) => String(s || '').replace(/_/g, ' ')
 
@@ -142,6 +147,21 @@ function AgentStageCard({ message, onAgentAction }) {
       )
     }
     if (message.proposal.final_actions) return <FinalActionsTable actions={message.proposal.final_actions} candidates={message.execution_summary?.top_candidates} />
+    if (Array.isArray(message.proposal.clarifying_questions) && message.proposal.clarifying_questions.length > 0) {
+      return (
+        <div className="mt-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Questions From The Agent</div>
+          <ol className="mt-2 list-decimal list-inside text-sm text-slate-200 space-y-1.5 pl-1">
+            {message.proposal.clarifying_questions.map((q, i) => (
+              <li key={i} className="leading-relaxed">{String(q)}</li>
+            ))}
+          </ol>
+          <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
+            Click <span className="text-amber-300 font-semibold">Answer</span> to provide a reply; the agent will redraft the plan with your context.
+          </p>
+        </div>
+      )
+    }
     return kvTable(message.proposal)
   }
 
@@ -209,36 +229,72 @@ function AgentStageCard({ message, onAgentAction }) {
     )
   }
 
+  const cardClass = isFailed
+    ? 'bg-rose-950/30 border border-rose-700/40 rounded-2xl px-4 py-3 shadow-sm'
+    : isClarification
+      ? 'bg-amber-950/20 border border-amber-700/40 rounded-2xl px-4 py-3 shadow-sm'
+      : 'bg-indigo-950/30 border border-indigo-700/40 rounded-2xl px-4 py-3 shadow-sm'
+
+  const labelClass = isFailed
+    ? 'text-xs font-bold uppercase tracking-wider text-rose-300'
+    : isClarification
+      ? 'text-xs font-bold uppercase tracking-wider text-amber-300'
+      : 'text-xs font-bold uppercase tracking-wider text-indigo-300'
+
+  const idClass = isFailed
+    ? 'text-[10px] font-mono text-rose-400/90'
+    : isClarification
+      ? 'text-[10px] font-mono text-amber-400/90'
+      : 'text-[10px] font-mono text-indigo-400/90'
+
+  const renderActions = () => {
+    if (!message.pending_approval) return null
+    if (isClarification) {
+      return (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onAgentAction?.('revise', message)}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 transition-colors"
+          >
+            Answer
+          </button>
+        </div>
+      )
+    }
+    return (
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onAgentAction?.('approve', message)}
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+        >
+          Approve
+        </button>
+        <button
+          type="button"
+          onClick={() => onAgentAction?.('revise', message)}
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 transition-colors"
+        >
+          Revise
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-indigo-950/30 border border-indigo-700/40 rounded-2xl px-4 py-3 shadow-sm">
+    <div className={cardClass}>
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-bold uppercase tracking-wider text-indigo-300">{stageLabel}</div>
+        <div className={labelClass}>{stageLabel}</div>
         {message.workflow_id && (
-          <div className="text-[10px] font-mono text-indigo-400/90">#{message.workflow_id}</div>
+          <div className={idClass}>#{message.workflow_id}</div>
         )}
       </div>
       <p className="mt-2 text-sm text-slate-200 leading-relaxed">{message.summary || message.content}</p>
       {renderProposal()}
       {renderExecutionSummary()}
       {renderAgentLogs()}
-      {message.pending_approval && (
-        <div className="mt-3 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onAgentAction?.('approve', message)}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-          >
-            Approve
-          </button>
-          <button
-            type="button"
-            onClick={() => onAgentAction?.('revise', message)}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 transition-colors"
-          >
-            Revise
-          </button>
-        </div>
-      )}
+      {renderActions()}
     </div>
   )
 }

@@ -28,9 +28,17 @@ export default function App() {
       return
     }
     if (action === 'revise') {
-      const hint = message?.stage === 'draft_plan'
-        ? 'What should be revised in the plan?'
-        : 'What should be revised?'
+      let hint
+      if (message?.stage === 'awaiting_clarification') {
+        const qs = message?.proposal?.clarifying_questions || []
+        hint = qs.length
+          ? `Answer the agent's question(s):\n\n- ${qs.join('\n- ')}`
+          : "Provide the clarification the agent asked for:"
+      } else if (message?.stage === 'draft_plan') {
+        hint = 'What should be revised in the plan?'
+      } else {
+        hint = 'What should be revised?'
+      }
       const revision = window.prompt(hint)
       if (!revision || !revision.trim()) return
       await sendMessage(`/goal revise ${workflowId} ${revision.trim()}`.trim(), { appendUser: false })

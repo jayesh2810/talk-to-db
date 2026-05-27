@@ -158,8 +158,8 @@ export default function ResultTable({ results, columns, queryType, totalResults,
     )
   }
 
-  const visibleColumns = columns.filter(c => c !== 'customer_id' && c !== 'order_id' && c !== 'product_id')
-  const isCustomerQuery = queryType?.includes('customer') || columns.includes('customer_id')
+  const visibleColumns = columns
+  const isCustomerQuery = columns.includes('user_id')
 
   const handleSort = (col) => {
     if (sortCol === col) {
@@ -239,7 +239,7 @@ export default function ResultTable({ results, columns, queryType, totalResults,
             {rows.map((row, i) => (
               <tr
                 key={i}
-                onClick={() => isCustomerQuery && onCustomerClick?.(row.customer_id)}
+                onClick={() => isCustomerQuery && row.user_id != null && onCustomerClick?.(row.user_id)}
                 className={`border-b border-gray-800/50 transition-all ${
                   isCustomerQuery ? 'cursor-pointer hover:bg-indigo-500/5' : 'hover:bg-gray-800/30'
                 }`}

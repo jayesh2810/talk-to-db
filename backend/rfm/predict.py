@@ -358,7 +358,6 @@ def run_predictive(
                     "Prioritize outreach using KumoRFM-ranked scores "
                     "(prescriptive templates can combine explain=true per entity)."
                 ),
-                "success_probability": 0.0,
             }
         )
 
@@ -379,7 +378,6 @@ def run_predictive(
             "confidence",
             "top_factors",
             "recommended_action",
-            "success_probability",
         ],
         "total_results": total,
     }

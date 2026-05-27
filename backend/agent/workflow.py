@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import re
 import time
 from typing import Any
 from uuid import uuid4
@@ -27,10 +28,15 @@ class GoalWorkflow:
     logs: list[dict[str, Any]] = field(default_factory=list)
 
 
+# Workflows are addressed by workflow_id; LAST_BY_USER tracks each user's most
+# recent workflow so `/goal approve` and `/goal revise` (without an explicit id)
+# resolve to it. With this split, a workflow_id stays valid for its lifetime
+# even after the user starts a new goal.
 WORKFLOWS: dict[str, GoalWorkflow] = {}
+LAST_BY_USER: dict[str, str] = {}
 
 SUPPORTED_GOALS = {"churn_probability", "purchase_likelihood", "demand_forecast"}
-ALLOWED_TOOLS = {"schema_inspect", "predict_execute", "match_execute", "result_summarize"}
+ALLOWED_TOOLS = {"schema_inspect", "predict_execute", "match_execute"}
 FORBIDDEN_PLAN_PHRASES = (
     "feature engineering",
     "engineer features",
@@ -44,6 +50,38 @@ FORBIDDEN_PLAN_PHRASES = (
     "classification algorithm",
     "regression algorithm",
 )
+# Word-boundary patterns so "rocket-ship growth" or "caucus of customers" no
+# longer trigger the "roc" / "auc" guards.
+_FORBIDDEN_PATTERNS = tuple(
+    re.compile(rf"\b{re.escape(p)}\b", re.IGNORECASE) for p in FORBIDDEN_PLAN_PHRASES
+)
+
+
+def _get_workflow(user: str, workflow_id: str | None) -> GoalWorkflow | None:
+    """Look up a workflow. Explicit id wins; otherwise the user's latest.
+
+    A workflow_id from one user cannot be used to access another user's
+    workflow even if leaked.
+    """
+    if workflow_id:
+        wf = WORKFLOWS.get(workflow_id)
+        if wf and wf.user == user:
+            return wf
+        return None
+    wid = LAST_BY_USER.get(user)
+    return WORKFLOWS.get(wid) if wid else None
+
+
+def _store_workflow(wf: GoalWorkflow) -> None:
+    WORKFLOWS[wf.workflow_id] = wf
+    LAST_BY_USER[wf.user] = wf.workflow_id
+
+
+def _forbidden_hit(text: str) -> str | None:
+    for raw, pat in zip(FORBIDDEN_PLAN_PHRASES, _FORBIDDEN_PATTERNS):
+        if pat.search(text):
+            return raw
+    return None
 
 
 def _log(wf: GoalWorkflow, event: str, detail: str, source: str = "agent") -> None:
@@ -168,7 +206,6 @@ def _goal_context(bundle: RFMBundle, wf: GoalWorkflow) -> dict[str, Any]:
             "schema_inspect": "sanitized schema/aggregates",
             "predict_execute": "run one approved PREDICT query via the Kumo relational model",
             "match_execute": "run one approved MATCH query",
-            "result_summarize": "aggregate executed results",
         },
         "privacy_mode": {
             "raw_rows_shared_with_llm": False,
@@ -205,6 +242,18 @@ def _masked_rows(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, A
     return out
 
 
+def _extract_clarification(raw: dict[str, Any]) -> list[str] | None:
+    """If the LLM asked for clarification, return the question list; else None."""
+    plan = raw.get("plan") if isinstance(raw.get("plan"), dict) else raw
+    if not plan.get("needs_clarification"):
+        return None
+    qs_raw = plan.get("clarifying_questions") or []
+    if not isinstance(qs_raw, list):
+        return None
+    qs = [str(q).strip() for q in qs_raw if str(q).strip()]
+    return qs or ["Please provide more detail about the goal."]
+
+
 def _normalize_plan(raw: dict[str, Any], objective: str) -> dict[str, Any]:
     plan = raw.get("plan") if isinstance(raw.get("plan"), dict) else raw
     _need_fields(plan, ["goal_type", "plan_rationale", "steps", "tool_steps"], "plan")
@@ -220,16 +269,19 @@ def _normalize_plan(raw: dict[str, Any], objective: str) -> dict[str, Any]:
     plan_text = " ".join(str(x) for x in plan.get("steps", []))
     for ts in plan.get("tool_steps", []):
         plan_text += " " + str(ts)
-    lowered = plan_text.lower()
-    for phrase in FORBIDDEN_PLAN_PHRASES:
-        if phrase in lowered:
-            raise ValueError(f"plan: Kumo-first plan cannot include '{phrase}'")
+    hit = _forbidden_hit(plan_text)
+    if hit:
+        raise ValueError(f"plan: Kumo-first plan cannot include '{hit}'")
 
     clean_steps: list[dict[str, Any]] = []
     for step in plan["tool_steps"]:
         if not isinstance(step, dict):
             raise ValueError("plan: each tool_step must be an object")
         tool = step.get("tool")
+        if tool == "result_summarize":
+            # Dropped: summarization runs unconditionally after execution; this
+            # tool was a no-op placebo in earlier versions of the plan schema.
+            continue
         if tool not in ALLOWED_TOOLS:
             raise ValueError(f"plan: unsupported tool {tool}")
         query = str(step.get("query", "") or "").strip()
@@ -245,17 +297,23 @@ def _normalize_plan(raw: dict[str, Any], objective: str) -> dict[str, Any]:
                 "query": query,
             }
         )
+    if not clean_steps:
+        raise ValueError("plan: tool_steps must include at least one executable step")
     plan["tool_steps"] = clean_steps
     return plan
 
 
 def _plan_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Return a normalized plan, or a dict {"_needs_clarification": True, ...}
+    if the LLM asked for clarification.
+    """
     system = (
         "You are a fast Kumo goal-planning agent. Return STRICT JSON only. "
         "You are NOT building or training an ML model. The Kumo relational model is already available. "
         "Do not propose feature engineering, model training, cross-validation, or custom ML algorithms. "
         "Use only the provided sanitized schema, aggregates, and available tools. "
-        "If the goal misses a required value, set needs_clarification=true and ask concise clarification questions. "
+        "If the goal misses a required value, set needs_clarification=true and ask concise clarification questions; "
+        "you may omit steps/tool_steps in that case. "
         "Do not invent external variables, data sources, tables, or columns. "
         "Keep every string short."
     )
@@ -281,11 +339,13 @@ def _plan_from_llm(wf: GoalWorkflow, goal_ctx: dict[str, Any]) -> dict[str, Any]
         '"steps":["..."],'
         '"tool_steps":[{"step":1,"tool":"schema_inspect","purpose":"...","query":""},'
         '{"step":2,"tool":"predict_execute","purpose":"...","query":"PREDICT ..."},'
-        '{"step":3,"tool":"match_execute","purpose":"...","query":"MATCH ..."},'
-        '{"step":4,"tool":"result_summarize","purpose":"...","query":""}]'
+        '{"step":3,"tool":"match_execute","purpose":"...","query":"MATCH ..."}]'
         "}"
     )
     raw = _safe_json_llm(wf, "plan", system, user, max_tokens=900)
+    clarification = _extract_clarification(raw)
+    if clarification:
+        return {"_needs_clarification": True, "clarifying_questions": clarification}
     return _normalize_plan(raw, wf.objective)
 
 
@@ -311,9 +371,6 @@ def _run_plan_tools(wf: GoalWorkflow, bundle: RFMBundle) -> dict[str, Any]:
 
         if tool == "schema_inspect":
             tool_results.append({"tool": tool, "status": "ok", "detail": "Sanitized schema already inspected for planning."})
-            continue
-        if tool == "result_summarize":
-            tool_results.append({"tool": tool, "status": "ok", "detail": "Summary generated from prior tool results."})
             continue
         if tool not in {"predict_execute", "match_execute"}:
             raise ValueError(f"Unknown tool in plan: {tool}")
@@ -392,6 +449,10 @@ def _agent_payload(wf: GoalWorkflow, summary: str) -> dict[str, Any]:
         proposal = {"plan": wf.plan}
     elif wf.stage == "final_actions":
         proposal = {"final_actions": wf.final_actions}
+    elif wf.stage == "awaiting_clarification":
+        proposal = {
+            "clarifying_questions": wf.plan.get("clarifying_questions", [])
+        }
     return {
         "mode": "agent_goal",
         "summary": summary,
@@ -405,50 +466,122 @@ def _agent_payload(wf: GoalWorkflow, summary: str) -> dict[str, Any]:
     }
 
 
+def _apply_planning_result(
+    wf: GoalWorkflow,
+    plan_or_clarify: dict[str, Any],
+    success_msg: str,
+) -> dict[str, Any]:
+    """Branch on plan-vs-clarification result and update workflow state."""
+    if plan_or_clarify.get("_needs_clarification"):
+        wf.stage = "awaiting_clarification"
+        wf.pending_approval = "clarification"
+        wf.plan = {"clarifying_questions": plan_or_clarify["clarifying_questions"]}
+        wf.execution_summary = {}
+        wf.final_actions = []
+        _store_workflow(wf)
+        _log(wf, "needs_clarification",
+             "Agent requested clarification before drafting a plan")
+        questions = "\n- ".join(plan_or_clarify["clarifying_questions"])
+        return _agent_payload(
+            wf,
+            "I need a bit more detail before drafting the plan:\n- "
+            + questions
+            + f"\n\nReply with `/goal revise {wf.workflow_id} <your answer>`.",
+        )
+
+    wf.plan = plan_or_clarify
+    wf.stage = "draft_plan"
+    wf.pending_approval = "plan"
+    wf.execution_summary = {}
+    wf.final_actions = []
+    _store_workflow(wf)
+    _log(wf, "workflow_initialized",
+         f"Goal type selected: {wf.plan.get('goal_type')}")
+    return _agent_payload(wf, success_msg)
+
+
 def _start_goal(user: str, objective: str, bundle: RFMBundle) -> dict[str, Any]:
     wf = GoalWorkflow(workflow_id=str(uuid4())[:8], user=user, objective=objective)
     _log(wf, "workflow_start", f"Objective received: {objective}")
     goal_ctx = _goal_context(bundle, wf)
-    _log(wf, "privacy_context_built", "Using schema+aggregates+tool list; raw PII rows are blocked")
+    _log(wf, "privacy_context_built",
+         "Using schema+aggregates+tool list; raw PII rows are blocked")
 
     try:
-        wf.plan = _plan_from_llm(wf, goal_ctx)
-        _log(wf, "workflow_initialized", f"Goal type selected: {wf.plan.get('goal_type')}")
+        plan_or_clarify = _plan_from_llm(wf, goal_ctx)
     except Exception as e:
+        wf.stage = "failed"
+        wf.pending_approval = None
         wf.execution_summary = {
-            "status": "needs_user_input",
+            "status": "planning_failed",
             "detail": f"Agent could not create a valid Kumo-first plan: {e}",
         }
+        _store_workflow(wf)
         _log(wf, "workflow_init_failed", str(e))
+        return _agent_payload(
+            wf,
+            f"Sorry, I couldn't draft a plan for that objective ({e}). "
+            "Try again with `/goal <revised objective>`.",
+        )
 
-    WORKFLOWS[user] = wf
-    return _agent_payload(
+    return _apply_planning_result(
         wf,
-        "Checkpoint A: Review the Kumo-first plan. Approve to execute it, or revise with `/goal revise <workflow_id> <changes>`.",
+        plan_or_clarify,
+        "Checkpoint A: Review the Kumo-first plan. Approve to execute it, "
+        f"or revise with `/goal revise {wf.workflow_id} <changes>`.",
     )
 
 
+def _wf_not_found(workflow_id: str | None) -> dict[str, Any]:
+    if workflow_id:
+        msg = f"Workflow `{workflow_id}` not found (or not yours)."
+    else:
+        msg = "No active workflow found."
+    return {
+        "mode": "agent_goal",
+        "summary": msg + " Start with `/goal <objective>`.",
+        "query_type": "agent_goal",
+    }
+
+
 def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict[str, Any]:
-    wf = WORKFLOWS.get(user)
+    wf = _get_workflow(user, workflow_id)
     if wf is None:
-        return {"mode": "agent_goal", "summary": "No active workflow found. Start with `/goal <objective>`.", "query_type": "agent_goal"}
-    if workflow_id and wf.workflow_id != workflow_id:
-        return {"mode": "agent_goal", "summary": f"Workflow id mismatch. Active workflow is `{wf.workflow_id}`.", "query_type": "agent_goal"}
+        return _wf_not_found(workflow_id)
 
     _log(wf, "approve_received", f"Stage={wf.stage}")
 
+    if wf.stage == "awaiting_clarification":
+        return _agent_payload(
+            wf,
+            f"I'm still waiting on clarification. Reply with "
+            f"`/goal revise {wf.workflow_id} <your answer>` before approving.",
+        )
+
+    if wf.stage == "failed":
+        return _agent_payload(
+            wf,
+            "This workflow failed during planning and can't be approved. "
+            "Start a new one with `/goal <objective>`.",
+        )
+
     if wf.stage == "draft_plan":
-        if not wf.plan:
-            return _agent_payload(wf, "Plan is not valid yet. Revise the goal or plan before approval.")
+        if not wf.plan or not wf.plan.get("tool_steps"):
+            return _agent_payload(
+                wf,
+                "Plan is not valid yet. Revise the goal or plan before approval.",
+            )
         try:
             wf.execution_summary = _run_plan_tools(wf, bundle)
             wf.final_actions = _actions_from_llm(wf)
             wf.stage = "final_actions"
             wf.pending_approval = "final_actions"
-            _log(wf, "stage_transition", "Plan executed; moved to final_actions checkpoint")
+            _log(wf, "stage_transition",
+                 "Plan executed; moved to final_actions checkpoint")
             return _agent_payload(
                 wf,
-                "Checkpoint B: Review final recommended actions. Approve to finalize, or revise with `/goal revise <workflow_id> ...`.",
+                "Checkpoint B: Review final recommended actions. Approve to finalize, "
+                f"or revise with `/goal revise {wf.workflow_id} ...`.",
             )
         except Exception as e:
             _log(wf, "execution_failed", str(e))
@@ -456,29 +589,73 @@ def _approve_goal(user: str, bundle: RFMBundle, workflow_id: str | None) -> dict
                 "status": "needs_user_input",
                 "detail": f"Plan execution failed: {e}",
             }
-            return _agent_payload(wf, "Plan execution needs revision. Update the plan and approve again.")
+            return _agent_payload(
+                wf,
+                "Plan execution needs revision. Update the plan and approve again.",
+            )
 
     if wf.stage == "final_actions":
         wf.stage = "completed"
         wf.pending_approval = None
         _log(wf, "workflow_completed", "Final approval received; workflow closed")
-        return _agent_payload(wf, "Workflow finalized. Start a new one with `/goal <objective>`.")
+        return _agent_payload(
+            wf, "Workflow finalized. Start a new one with `/goal <objective>`."
+        )
 
     return _agent_payload(wf, "Workflow already completed.")
 
 
-def _revise_goal(user: str, workflow_id: str | None, revision: str, bundle: RFMBundle) -> dict[str, Any]:
-    wf = WORKFLOWS.get(user)
+def _revise_goal(
+    user: str, workflow_id: str | None, revision: str, bundle: RFMBundle
+) -> dict[str, Any]:
+    wf = _get_workflow(user, workflow_id)
     if wf is None:
-        return {"mode": "agent_goal", "summary": "No active workflow found to revise. Start with `/goal <objective>`.", "query_type": "agent_goal"}
-    if workflow_id and wf.workflow_id != workflow_id:
-        return {"mode": "agent_goal", "summary": f"Workflow id mismatch. Active workflow is `{wf.workflow_id}`.", "query_type": "agent_goal"}
+        return _wf_not_found(workflow_id)
 
     _log(wf, "revise_received", f"Stage={wf.stage}; revision={revision}")
-    goal_ctx = _goal_context(bundle, wf)
+
+    if wf.stage == "completed":
+        return _agent_payload(
+            wf, "Workflow already completed. Start a new one with `/goal <objective>`."
+        )
+    if wf.stage == "failed":
+        return _agent_payload(
+            wf,
+            "This workflow failed during planning. Start a new one "
+            "with `/goal <objective>` rather than revising.",
+        )
+
+    # Clarification: treat the revision text as the answer and re-plan.
+    if wf.stage == "awaiting_clarification":
+        wf.objective = f"{wf.objective}\n[Clarification: {revision}]"
+        goal_ctx = _goal_context(bundle, wf)
+        try:
+            plan_or_clarify = _plan_from_llm(wf, goal_ctx)
+        except Exception as e:
+            wf.stage = "failed"
+            wf.pending_approval = None
+            wf.execution_summary = {
+                "status": "planning_failed",
+                "detail": f"Replanning after clarification failed: {e}",
+            }
+            _log(wf, "workflow_init_failed", str(e))
+            return _agent_payload(
+                wf,
+                f"Sorry, I still couldn't draft a plan ({e}). "
+                "Start a new one with `/goal <objective>`.",
+            )
+        return _apply_planning_result(
+            wf,
+            plan_or_clarify,
+            "Plan drafted with your clarification. Approve to execute, "
+            f"or revise with `/goal revise {wf.workflow_id} <changes>`.",
+        )
 
     if wf.stage == "final_actions":
-        system = "Return STRICT JSON only. Revise the final action list using only the existing privacy-safe execution summary."
+        system = (
+            "Return STRICT JSON only. Revise the final action list using only "
+            "the existing privacy-safe execution summary."
+        )
         user_prompt = (
             f"Goal: {wf.objective}\nCurrent actions: {wf.final_actions}\n"
             f"Execution summary: {wf.execution_summary}\nRevision request: {revision}\n"
@@ -491,6 +668,8 @@ def _revise_goal(user: str, workflow_id: str | None, revision: str, bundle: RFMB
         _log(wf, "revise_applied", "Final actions revised")
         return _agent_payload(wf, "Final actions updated. Approve to finalize.")
 
+    # draft_plan: revise the plan itself.
+    goal_ctx = _goal_context(bundle, wf)
     system = (
         "Return STRICT JSON only. Revise the Kumo-first plan. "
         "Do not propose feature engineering, model training, cross-validation, or external data."
@@ -503,11 +682,19 @@ def _revise_goal(user: str, workflow_id: str | None, revision: str, bundle: RFMB
         "Return the full revised plan using the same schema as the original plan."
     )
     raw = _safe_json_llm(wf, "revise_plan", system, user_prompt)
+    clarification = _extract_clarification(raw)
+    if clarification:
+        return _apply_planning_result(
+            wf,
+            {"_needs_clarification": True, "clarifying_questions": clarification},
+            "",
+        )
     wf.plan = _normalize_plan(raw, wf.objective)
     wf.execution_summary = {}
     wf.final_actions = []
     wf.stage = "draft_plan"
     wf.pending_approval = "plan"
+    _store_workflow(wf)
     _log(wf, "revise_applied", "Plan revised")
     return _agent_payload(wf, "Plan updated. Approve when ready to execute.")
 

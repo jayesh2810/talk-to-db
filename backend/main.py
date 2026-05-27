@@ -14,11 +14,13 @@ Usage:
   uvicorn main:app --reload -- --rebuild-rfm-graph   # rebuild LocalGraph pickle
 """
 
+import ipaddress
 import os
 import secrets
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Body
@@ -262,12 +264,70 @@ async def get_user_detail(user_id: str, user: str = Depends(get_current_user)):
 
 # ── Health ───────────────────────────────────────────────────────────────
 
+def _webhook_allowed_hosts() -> set[str]:
+    raw = os.environ.get("WEBHOOK_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def _validate_webhook_url(url: str) -> None:
+    """Reject anything that isn't an http(s) URL pointing at an allow-listed
+    public host. Closes the SSRF that this proxy used to be."""
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid webhook URL: {e}") from e
+
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Webhook URL must use http or https")
+
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="Webhook URL missing host")
+
+    # Block raw IP literals pointing at private / loopback / link-local ranges
+    # so an allow-listed name can't be bypassed via http://127.0.0.1.
+    try:
+        ip = ipaddress.ip_address(host)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Webhook URL cannot target private/loopback IPs",
+            )
+    except ValueError:
+        pass  # not a raw IP literal — fall through to the host allow-list
+
+    allowed = _webhook_allowed_hosts()
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Webhook proxy is disabled. Set WEBHOOK_ALLOWED_HOSTS in .env to enable it.",
+        )
+    if host not in allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Webhook host '{host}' is not allow-listed (see WEBHOOK_ALLOWED_HOSTS).",
+        )
+
+
 @app.post("/api/webhook/send", response_model=dict)
 async def send_webhook(request: WebhookRequest, user: str = Depends(get_current_user)):
-    """Proxy a payload to an external webhook URL."""
+    """Proxy a payload to an allow-listed external webhook URL."""
+    _validate_webhook_url(request.webhook_url)
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(request.webhook_url, json=request.payload, timeout=10.0)
+            response = await client.post(
+                request.webhook_url,
+                json=request.payload,
+                timeout=10.0,
+                follow_redirects=False,
+            )
             response.raise_for_status()
             return {"status": "success", "response": response.text}
         except httpx.HTTPStatusError as e:
